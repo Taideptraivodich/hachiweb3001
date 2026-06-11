@@ -1,0 +1,4 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #f5f5f5; }
+.ant-table-cell { font-size: 13px !important; }
+.order-detail-row td { padding: 4px 8px !important; }
