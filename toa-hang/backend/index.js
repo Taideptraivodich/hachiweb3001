@@ -9,6 +9,7 @@ const productsRouter = require('./src/routes/products');
 const ordersRouter   = require('./src/routes/orders');
 const reportsRouter  = require('./src/routes/reports');
 const historyRouter  = require('./src/routes/history');
+const congnoRouter   = require('./src/routes/congno');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -21,6 +22,7 @@ app.use('/api/products',  productsRouter);
 app.use('/api/orders',    ordersRouter);
 app.use('/api/reports',   reportsRouter);
 app.use('/api/history',   historyRouter);
+app.use('/api/congno',    congnoRouter);
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
