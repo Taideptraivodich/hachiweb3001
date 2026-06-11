@@ -3,11 +3,12 @@ import { Layout, Menu, Typography, Button, message, Space } from 'antd';
 import {
   FileTextOutlined, BarChartOutlined,
   ReloadOutlined, DatabaseOutlined,
-  BankOutlined
+  BankOutlined, InboxOutlined
 } from '@ant-design/icons';
 import OrderList from './components/OrderList';
 import Reports   from './components/Reports';
 import CongNo    from './components/CongNo';
+import TonKho    from './components/TonKho';
 import { syncProducts, syncCustomers } from './api';
 
 const { Header, Content, Sider } = Layout;
@@ -71,6 +72,7 @@ export default function App() {
               { key:'orders',  icon:<FileTextOutlined />,  label:'Toa hàng' },
               { key:'reports', icon:<BarChartOutlined />,  label:'Báo cáo' },
               { key:'congno',  icon:<BankOutlined />,      label:'Công nợ' },
+              { key:'tonkho',  icon:<InboxOutlined />,     label:'Tồn kho' },
             ]}
           />
         </Sider>
@@ -83,6 +85,7 @@ export default function App() {
             {page === 'orders'  && <OrderList />}
             {page === 'reports' && <Reports />}
             {page === 'congno'  && <CongNo />}
+            {page === 'tonkho'  && <TonKho />}
           </div>
         </Content>
       </Layout>
