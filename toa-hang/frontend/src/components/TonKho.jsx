@@ -80,7 +80,10 @@ const tdS = (align = 'right', extra = {}) => ({
 });
 
 // ─── Bảng tổng hợp tồn kho ───────────────────────────────────────────────────
-function TongHopTable({ data, danhSachKho, loading, onSelect, onFilter, filters }) {
+function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, filters }) {
+  const ROW_H = 40; // chiều cao mỗi dòng px
+  const OVERSCAN = 5; // số dòng render thêm ngoài viewport
+
   // Tổng dòng cuối
   const totals = useMemo(() => data.reduce((acc, r) => ({
     dau_ky_sl: acc.dau_ky_sl + Number(r.dau_ky_sl || 0),
@@ -91,6 +94,65 @@ function TongHopTable({ data, danhSachKho, loading, onSelect, onFilter, filters 
     xuat_gt:   acc.xuat_gt   + Number(r.xuat_gt   || 0),
     cuoi_ky_gt:acc.cuoi_ky_gt+ Number(r.cuoi_ky_gt|| 0),
   }), { dau_ky_sl:0, nhap_sl:0, xuat_sl:0, cuoi_ky_sl:0, nhap_gt:0, xuat_gt:0, cuoi_ky_gt:0 }), [data]);
+
+  // Virtual scroll state
+  const [scrollTop, setScrollTop] = React.useState(0);
+  const [viewH, setViewH] = React.useState(600);
+
+  // Dùng ref callback thay vì useRef để đo ngay khi element xuất hiện
+  const scrollRef = React.useCallback(el => {
+    if (!el) return;
+    // Đo ngay lập tức
+    setViewH(el.clientHeight || window.innerHeight - 380);
+    // Lắng nghe scroll
+    const onScroll = () => setScrollTop(el.scrollTop);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    // ResizeObserver theo dõi khi container thay đổi kích thước
+    const ro = new ResizeObserver(() => setViewH(el.clientHeight));
+    ro.observe(el);
+    // cleanup lưu vào property để gọi khi unmount
+    el._cleanup = () => { el.removeEventListener('scroll', onScroll); ro.disconnect(); };
+  }, []);
+
+  // Cleanup khi unmount
+  React.useEffect(() => {
+    return () => {
+      // không có ref trực tiếp nên cleanup tự xử lý trong callback
+    };
+  }, []);
+
+  // Reset scroll khi data thay đổi
+  React.useEffect(() => {
+    setScrollTop(0);
+  }, [data]);
+
+  // sort state
+  const [sort, setSort] = React.useState({ key: 'ten_hang', dir: 1 });
+  const sortedData = React.useMemo(() => {
+    const d = [...data];
+    d.sort((a, b) => {
+      const va = a[sort.key] ?? 0, vb = b[sort.key] ?? 0;
+      if (typeof va === 'string') return sort.dir * va.localeCompare(vb, 'vi');
+      return sort.dir * (Number(vb) - Number(va));
+    });
+    return d;
+  }, [data, sort]);
+
+  const toggleSort = k => setSort(s => ({ key: k, dir: s.key === k ? -s.dir : -1 }));
+  const sortIcon = k => {
+    if (sort.key !== k) return <span style={{ opacity:0.3, marginLeft:3, fontSize:10 }}>↕</span>;
+    return <span style={{ color: C.ton, marginLeft:3, fontSize:10 }}>{sort.dir === -1 ? '↓' : '↑'}</span>;
+  };
+  const thSort = (k, align='right') => ({
+    ...thS(align), cursor:'pointer', userSelect:'none', position:'sticky', top:0, zIndex:1,
+  });
+
+  const totalH      = sortedData.length * ROW_H;
+  const startIdx    = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const endIdx      = Math.min(sortedData.length, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN);
+  const visibleRows = sortedData.slice(startIdx, endIdx);
+  const paddingTop    = startIdx * ROW_H;
+  const paddingBottom = (sortedData.length - endIdx) * ROW_H;
 
   return (
     <div>
@@ -122,13 +184,13 @@ function TongHopTable({ data, danhSachKho, loading, onSelect, onFilter, filters 
         border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden',
       }}>
         {[
-          { label: 'Tồn đầu kỳ',  sl: totals.dau_ky_sl,  gt: null,             color: C.text  },
-          { label: 'Nhập trong kỳ',sl: totals.nhap_sl,    gt: totals.nhap_gt,   color: C.nhap  },
-          { label: 'Xuất trong kỳ',sl: totals.xuat_sl,    gt: totals.xuat_gt,   color: C.xuat  },
-          { label: 'Tồn cuối kỳ', sl: totals.cuoi_ky_sl, gt: totals.cuoi_ky_gt,color: C.ton   },
+          { label: 'Tồn đầu kỳ',   sl: totals.dau_ky_sl,  gt: null,             color: C.text  },
+          { label: 'Nhập trong kỳ', sl: totals.nhap_sl,    gt: totals.nhap_gt,   color: C.nhap  },
+          { label: 'Xuất trong kỳ', sl: totals.xuat_sl,    gt: totals.xuat_gt,   color: C.xuat  },
+          { label: 'Tồn cuối kỳ',  sl: totals.cuoi_ky_sl, gt: totals.cuoi_ky_gt,color: C.ton   },
         ].map(item => (
           <div key={item.label} style={{
-            padding: '12px 16px', background: '#fff',
+            padding: '12px 16px', background: '#1e293b',
             borderRight: `1px solid ${C.border}`,
           }}>
             <div style={{ fontSize: 11, color: C.sub, marginBottom: 4, textTransform:'uppercase', letterSpacing:'0.05em' }}>
@@ -150,132 +212,131 @@ function TongHopTable({ data, danhSachKho, loading, onSelect, onFilter, filters 
         {data.length === 0 && !loading
           ? <Empty description="Không có dữ liệu tồn kho trong kỳ" style={{ padding:'40px 0' }} />
           : (
-            <div style={{ overflowX:'auto', border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden' }}>
-              <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                <thead>
-                  <tr>
-                    <th rowSpan={2} style={{ ...thS('left'), width:120, verticalAlign:'middle' }}>Mã hàng</th>
-                    <th rowSpan={2} style={{ ...thS('left'), minWidth:200, verticalAlign:'middle' }}>Tên hàng</th>
-                    <th rowSpan={2} style={{ ...thS('center'), width:50,  verticalAlign:'middle' }}>ĐVT</th>
-                    <th rowSpan={2} style={{ ...thS('right'), width:80,  verticalAlign:'middle' }}>Đầu kỳ (SL)</th>
-                    <th colSpan={2} style={{ ...thS('center'), borderBottom:`1px solid ${C.border}`, color: C.nhap }}>Nhập kho</th>
-                    <th colSpan={2} style={{ ...thS('center'), borderBottom:`1px solid ${C.border}`, color: C.xuat }}>Xuất kho</th>
-                    <th colSpan={2} style={{ ...thS('center'), borderBottom:`1px solid ${C.border}`, color: C.ton }}>Tồn cuối kỳ</th>
-                    <th rowSpan={2} style={{ ...thS('center'), width:70, borderRight:'none', verticalAlign:'middle' }}></th>
-                  </tr>
-                  <tr>
-                    <th style={{ ...thS('right'), width:80 }}>Số lượng</th>
-                    <th style={{ ...thS('right'), width:120 }}>Giá trị</th>
-                    <th style={{ ...thS('right'), width:80 }}>Số lượng</th>
-                    <th style={{ ...thS('right'), width:120 }}>Giá trị</th>
-                    <th style={{ ...thS('right'), width:80 }}>Số lượng</th>
-                    <th style={{ ...thS('right'), width:130 }}>Giá trị</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.map((r, i) => {
-                    const isCanhBao = Number(r.cuoi_ky_sl) <= 0;
-                    return (
-                      <tr
-                        key={r.ma_hang}
-                        style={{ background: i % 2 === 0 ? C.rowOdd : C.rowEven, cursor:'pointer', transition:'background 0.1s' }}
-                        onClick={() => onSelect(r)}
-                        onMouseEnter={e => e.currentTarget.style.background = C.rowHover}
-                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.rowOdd : C.rowEven}
-                      >
-                        <td style={tdS('left')}>
-                          <Text code style={{ fontSize:11 }}>{r.ma_hang}</Text>
-                        </td>
-                        <td style={tdS('left', { maxWidth:240, overflow:'hidden', textOverflow:'ellipsis' })}>
-                          <span title={r.ten_hang} style={{ fontWeight:500 }}>{r.ten_hang}</span>
-                        </td>
-                        <td style={{ ...tdS('center'), color: C.sub }}>{r.dvt || '—'}</td>
-                        <td style={tdS()}>
-                          {Number(r.dau_ky_sl) !== 0
-                            ? <span style={{ fontVariantNumeric:'tabular-nums' }}>{Number(r.dau_ky_sl).toLocaleString('vi-VN')}</span>
-                            : <span style={{ color: C.muted }}>—</span>}
-                        </td>
-                        <td style={tdS()}>
-                          {Number(r.nhap_sl) > 0
-                            ? <span style={{ color: C.nhap, fontWeight:500 }}>{Number(r.nhap_sl).toLocaleString('vi-VN')}</span>
-                            : <span style={{ color: C.muted }}>—</span>}
-                        </td>
-                        <td style={tdS()}>
-                          {Number(r.nhap_gt) > 0
-                            ? <span style={{ color: C.nhap }}>{fmt(r.nhap_gt)}</span>
-                            : <span style={{ color: C.muted }}>—</span>}
-                        </td>
-                        <td style={tdS()}>
-                          {Number(r.xuat_sl) > 0
-                            ? <span style={{ color: C.xuat, fontWeight:500 }}>{Number(r.xuat_sl).toLocaleString('vi-VN')}</span>
-                            : <span style={{ color: C.muted }}>—</span>}
-                        </td>
-                        <td style={tdS()}>
-                          {Number(r.xuat_gt) > 0
-                            ? <span style={{ color: C.xuat }}>{fmt(r.xuat_gt)}</span>
-                            : <span style={{ color: C.muted }}>—</span>}
-                        </td>
-                        <td style={tdS()}>
-                          {isCanhBao
-                            ? (
-                              <Tooltip title="Tồn kho bằng 0 hoặc âm">
-                                <span style={{ color: C.warn, fontWeight:700, display:'flex', alignItems:'center', gap:4, justifyContent:'flex-end' }}>
-                                  <WarningOutlined style={{ fontSize:12 }} />
+            <div style={{ border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden' }}>
+              {/* 1 div cuộn duy nhất — thead sticky → không bao giờ lệch */}
+              <div
+                ref={scrollRef}
+                style={{ overflowY:'auto', overflowX:'auto', maxHeight:'calc(100vh - 370px)' }}
+              >
+                <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed', minWidth: 1050 }}>
+                  <colgroup>
+                    <col style={{width:130}}/><col style={{minWidth:220}}/><col style={{width:52}}/>
+                    <col style={{width:75}}/><col style={{width:85}}/><col style={{width:125}}/>
+                    <col style={{width:85}}/><col style={{width:125}}/><col style={{width:85}}/>
+                    <col style={{width:160}}/><col style={{width:68}}/>
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th onClick={() => toggleSort('ma_hang')}  style={{ ...thSort('ma_hang','left') }}>Mã hàng {sortIcon('ma_hang')}</th>
+                      <th onClick={() => toggleSort('ten_hang')} style={{ ...thSort('ten_hang','left') }}>Tên hàng {sortIcon('ten_hang')}</th>
+                      <th style={{ ...thSort('center') }}>ĐVT</th>
+                      <th onClick={() => toggleSort('dau_ky_sl')} style={{ ...thSort('dau_ky_sl') }}>Đầu kỳ (SL) {sortIcon('dau_ky_sl')}</th>
+                      <th onClick={() => toggleSort('nhap_sl')}   style={{ ...thSort('nhap_sl'),  color: C.nhap }}>Nhập SL {sortIcon('nhap_sl')}</th>
+                      <th onClick={() => toggleSort('nhap_gt')}   style={{ ...thSort('nhap_gt'),  color: C.nhap }}>Nhập GT {sortIcon('nhap_gt')}</th>
+                      <th onClick={() => toggleSort('xuat_sl')}   style={{ ...thSort('xuat_sl'),  color: C.xuat }}>Xuất SL {sortIcon('xuat_sl')}</th>
+                      <th onClick={() => toggleSort('xuat_gt')}   style={{ ...thSort('xuat_gt'),  color: C.xuat }}>Xuất GT {sortIcon('xuat_gt')}</th>
+                      <th onClick={() => toggleSort('cuoi_ky_sl')} style={{ ...thSort('cuoi_ky_sl'), color: C.ton }}>Tồn SL {sortIcon('cuoi_ky_sl')}</th>
+                      <th onClick={() => toggleSort('cuoi_ky_gt')} style={{ ...thSort('cuoi_ky_gt'), color: C.ton }}>Tồn GT {sortIcon('cuoi_ky_gt')}</th>
+                      <th style={{ ...thSort('center'), borderRight:'none', cursor:'default' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paddingTop > 0 && (
+                      <tr><td colSpan={11} style={{ height: paddingTop, padding:0, border:'none' }} /></tr>
+                    )}
+                    {visibleRows.map((r, _i) => {
+                      const i = startIdx + _i;
+                      const isCanhBao = Number(r.cuoi_ky_sl) <= 0;
+                      return (
+                        <tr
+                          key={r.ma_hang}
+                          style={{ height: ROW_H, background: i % 2 === 0 ? C.rowOdd : C.rowEven, cursor:'pointer' }}
+                          onClick={() => onSelect(r)}
+                          onMouseEnter={e => e.currentTarget.style.background = C.rowHover}
+                          onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.rowOdd : C.rowEven}
+                        >
+                          <td style={{ ...tdS('left'), overflow:'hidden', textOverflow:'ellipsis', maxWidth:0 }}>
+  <Text code style={{ fontSize:14, whiteSpace:'nowrap' }} title={r.ma_hang}>{r.ma_hang}</Text>
+</td>
+                          <td style={tdS('left', { overflow:'hidden', textOverflow:'ellipsis' })}>
+                            <span title={r.ten_hang} style={{ fontWeight:500 }}>{r.ten_hang}</span>
+                          </td>
+                          <td style={{ ...tdS('center'), color: C.sub }}>{r.dvt || '—'}</td>
+                          <td style={tdS()}>
+                            {Number(r.dau_ky_sl) !== 0
+                              ? <span style={{ fontVariantNumeric:'tabular-nums' }}>{Number(r.dau_ky_sl).toLocaleString('vi-VN')}</span>
+                              : <span style={{ color: C.muted }}>—</span>}
+                          </td>
+                          <td style={tdS()}>
+                            {Number(r.nhap_sl) > 0
+                              ? <span style={{ color: C.nhap, fontWeight:500 }}>{Number(r.nhap_sl).toLocaleString('vi-VN')}</span>
+                              : <span style={{ color: C.muted }}>—</span>}
+                          </td>
+                          <td style={tdS()}>
+                            {Number(r.nhap_gt) > 0
+                              ? <span style={{ color: C.nhap }}>{fmt(r.nhap_gt)}</span>
+                              : <span style={{ color: C.muted }}>—</span>}
+                          </td>
+                          <td style={tdS()}>
+                            {Number(r.xuat_sl) > 0
+                              ? <span style={{ color: C.xuat, fontWeight:500 }}>{Number(r.xuat_sl).toLocaleString('vi-VN')}</span>
+                              : <span style={{ color: C.muted }}>—</span>}
+                          </td>
+                          <td style={tdS()}>
+                            {Number(r.xuat_gt) > 0
+                              ? <span style={{ color: C.xuat }}>{fmt(r.xuat_gt)}</span>
+                              : <span style={{ color: C.muted }}>—</span>}
+                          </td>
+                          <td style={tdS()}>
+                            {isCanhBao
+                              ? (
+                                <Tooltip title="Tồn kho bằng 0 hoặc âm">
+                                  <span style={{ color: C.warn, fontWeight:700, display:'flex', alignItems:'center', gap:4, justifyContent:'flex-end' }}>
+                                    <WarningOutlined style={{ fontSize:12 }} />
+                                    {Number(r.cuoi_ky_sl).toLocaleString('vi-VN')}
+                                  </span>
+                                </Tooltip>
+                              ) : (
+                                <span style={{ color: C.ton, fontWeight:700 }}>
                                   {Number(r.cuoi_ky_sl).toLocaleString('vi-VN')}
                                 </span>
-                              </Tooltip>
-                            ) : (
-                              <span style={{ color: C.ton, fontWeight:700 }}>
-                                {Number(r.cuoi_ky_sl).toLocaleString('vi-VN')}
-                              </span>
-                            )
-                          }
-                        </td>
-                        <td style={tdS()}>
-                          {Number(r.cuoi_ky_gt) !== 0
-                            ? <span style={{ color: C.ton }}>{fmt(r.cuoi_ky_gt)}</span>
-                            : <span style={{ color: C.muted }}>—</span>}
-                        </td>
-                        <td style={{ ...tdS('center'), borderRight:'none' }}>
-                          <Button size="small" type="link" icon={<FileTextOutlined />} style={{ padding:0, fontSize:12 }}>
-                            Chi tiết
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                {/* Dòng tổng */}
-                <tfoot>
-                  <tr style={{ background: C.headerBg, fontWeight:700 }}>
-                    <td colSpan={3} style={{ ...tdS('left'), borderTop:`2px solid ${C.border}`, color: C.sub, fontSize:12 }}>
-                      Tổng cộng ({data.length} mặt hàng)
-                    </td>
-                    <td style={{ ...tdS(), borderTop:`2px solid ${C.border}` }}>
-                      {totals.dau_ky_sl.toLocaleString('vi-VN')}
-                    </td>
-                    <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.nhap }}>
-                      {totals.nhap_sl.toLocaleString('vi-VN')}
-                    </td>
-                    <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.nhap }}>
-                      {fmt(totals.nhap_gt)}
-                    </td>
-                    <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.xuat }}>
-                      {totals.xuat_sl.toLocaleString('vi-VN')}
-                    </td>
-                    <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.xuat }}>
-                      {fmt(totals.xuat_gt)}
-                    </td>
-                    <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.ton }}>
-                      {totals.cuoi_ky_sl.toLocaleString('vi-VN')}
-                    </td>
-                    <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.ton }}>
-                      {fmt(totals.cuoi_ky_gt)}
-                    </td>
-                    <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, borderRight:'none' }}></td>
-                  </tr>
-                </tfoot>
-              </table>
+                              )
+                            }
+                          </td>
+                          <td style={tdS()}>
+                            {Number(r.cuoi_ky_gt) !== 0
+                              ? <span style={{ color: C.ton }}>{fmt(r.cuoi_ky_gt)}</span>
+                              : <span style={{ color: C.muted }}>—</span>}
+                          </td>
+                          <td style={{ ...tdS('center'), borderRight:'none' }}>
+                            <Button size="small" type="link" icon={<FileTextOutlined />} style={{ padding:0, fontSize:12 }}>
+                              Chi tiết
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {paddingBottom > 0 && (
+                      <tr><td colSpan={11} style={{ height: paddingBottom, padding:0, border:'none' }} /></tr>
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: C.headerBg, fontWeight:700 }}>
+                      <td colSpan={3} style={{ ...tdS('left'), borderTop:`2px solid ${C.border}`, color: C.sub, fontSize:12 }}>
+                        Tổng cộng ({data.length} mặt hàng)
+                      </td>
+                      <td style={{ ...tdS(), borderTop:`2px solid ${C.border}` }}>{totals.dau_ky_sl.toLocaleString('vi-VN')}</td>
+                      <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.nhap }}>{totals.nhap_sl.toLocaleString('vi-VN')}</td>
+                      <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.nhap }}>{fmt(totals.nhap_gt)}</td>
+                      <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.xuat }}>{totals.xuat_sl.toLocaleString('vi-VN')}</td>
+                      <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.xuat }}>{fmt(totals.xuat_gt)}</td>
+                      <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.ton }}>{totals.cuoi_ky_sl.toLocaleString('vi-VN')}</td>
+                      <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, color: C.ton }}>{fmt(totals.cuoi_ky_gt)}</td>
+                      <td style={{ ...tdS(), borderTop:`2px solid ${C.border}`, borderRight:'none' }}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
           )
         }
@@ -283,6 +344,13 @@ function TongHopTable({ data, danhSachKho, loading, onSelect, onFilter, filters 
     </div>
   );
 }
+
+const TongHopTable = React.memo(TongHopTableInner, (prev, next) =>
+  prev.data === next.data &&
+  prev.loading === next.loading &&
+  prev.filters === next.filters &&
+  prev.danhSachKho === next.danhSachKho
+);
 
 // ─── Panel chi tiết 1 mặt hàng ───────────────────────────────────────────────
 function ChiTietPanel({ hang, range, onBack }) {
@@ -427,6 +495,7 @@ function ChiTietPanel({ hang, range, onBack }) {
                             <th style={{ ...thS('left'), width:140 }}>Số chứng từ</th>
                             <th style={{ ...thS('left'), width:100 }}>Ngày CT</th>
                             <th style={{ ...thS('left'), minWidth:200 }}>Diễn giải</th>
+                            <th style={{ ...thS('left'), width:120 }}>Tên kho</th>
                             <th style={{ ...thS('center'), width:55 }}>ĐVT</th>
                             <th style={{ ...thS('right'), width:100 }}>Đơn giá</th>
                             <th style={{ ...thS('right'), width:90, color: C.nhap }}>Nhập SL</th>
@@ -450,6 +519,9 @@ function ChiTietPanel({ hang, range, onBack }) {
                               </td>
                               <td style={{ ...tdS('left'), maxWidth:260, overflow:'hidden', textOverflow:'ellipsis' }}>
                                 <span title={r.dien_giai}>{r.dien_giai || <span style={{ color: C.muted }}>—</span>}</span>
+                              </td>
+                              <td style={{ ...tdS('left'), color: C.sub }}>
+                                {r.kho || <span style={{ color: C.muted }}>—</span>}
                               </td>
                               <td style={{ ...tdS('center'), color: C.sub }}>{r.dvt || '—'}</td>
                               <td style={tdS()}>
@@ -511,21 +583,30 @@ export default function TonKho() {
   const [selectedHang, setHang]   = useState(null);
   const [filters, setFilters]     = useState({ q: '', kho: '' });
 
+  const handleSelect = useCallback(r => setHang(r), []);
+  const handleFilter = useCallback(patch => setFilters(f => ({ ...f, ...patch })), []);
+
   async function loadData() {
     setLoading(true);
     try {
+      console.time('[TonKho] 1_API');
       const r = await api.get('/tonkho/tong-hop', {
         params: {
           tu_ngay:  range[0]?.format('YYYY-MM-DD'),
           den_ngay: range[1]?.format('YYYY-MM-DD'),
         },
       });
-      setRawData(r.data.data || []);
+      console.timeEnd('[TonKho] 1_API');
+      const rows = r.data.data || [];
+      console.log('[TonKho] rows:', rows.length);
+      console.time('[TonKho] 2_render');
+      setRawData(rows);
       setKhoList(r.data.danhSachKho || []);
       setLoaded(true);
       setFilters({ q: '', kho: '' });
+      requestAnimationFrame(() => console.timeEnd('[TonKho] 2_render'));
     } catch (e) {
-      message.error('Lỗi tải tồn kho: ' + e.message);
+      message.error('Loi tai ton kho: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -553,7 +634,11 @@ export default function TonKho() {
         <ChiTietPanel
           hang={selectedHang}
           range={range}
-          onBack={() => setHang(null)}
+          onBack={() => {
+            console.time('[TonKho] 3_back_render');
+            setHang(null);
+            requestAnimationFrame(() => console.timeEnd('[TonKho] 3_back_render'));
+          }}
         />
       ) : (
         <>
@@ -593,8 +678,8 @@ export default function TonKho() {
               data={filteredData}
               danhSachKho={danhSachKho}
               loading={loading}
-              onSelect={setHang}
-              onFilter={patch => setFilters(f => ({ ...f, ...patch }))}
+              onSelect={handleSelect}
+              onFilter={handleFilter}
               filters={filters}
             />
           )}

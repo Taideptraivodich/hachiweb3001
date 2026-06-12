@@ -47,8 +47,7 @@ function fmtShort(v) {
   const n = Number(v) || 0;
   if (n === 0) return '0';
   if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace('.0', '') + ' tỷ';
-  if (n >= 1_000_000)     return (n / 1_000_000).toFixed(1).replace('.0', '') + 'tr';
-  return formatMoney(n);
+  return formatMoney(n);  // bỏ dòng triệu → hiện đầy đủ
 }
 
 function groupBy(arr, keyFn) {

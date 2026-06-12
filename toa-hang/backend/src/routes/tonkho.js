@@ -22,44 +22,57 @@ router.get('/tong-hop', async (req, res) => {
     request.input('tu_ngay',  sql.Date, new Date(fromDate));
     request.input('den_ngay', sql.Date, new Date(toDate));
 
-    // Join thêm bảng Unit để lấy tên đơn vị tính
+    // 2 CTE tách biệt theo range ngày → SQL Server có thể seek index trên PostedDate
     const result = await request.query(`
-      SELECT
-        il.InventoryItemCode                                              AS ma_hang,
-        MAX(il.InventoryItemName)                                         AS ten_hang,
-        MAX(il.StockName)                                                 AS kho,
-        MAX(u.UnitName)                                                   AS dvt,
-        -- Đầu kỳ
-        ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
-          THEN il.InwardQuantity  ELSE 0 END), 0)
-        - ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
-          THEN il.OutwardQuantity ELSE 0 END), 0)                        AS dau_ky_sl,
-        ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
-          THEN il.InwardAmount    ELSE 0 END), 0)
-        - ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
-          THEN il.OutwardAmount   ELSE 0 END), 0)                        AS dau_ky_gt,
-        -- Nhập trong kỳ
-        ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
-          THEN il.InwardQuantity  ELSE 0 END), 0)                        AS nhap_sl,
-        ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
-          THEN il.InwardAmount    ELSE 0 END), 0)                        AS nhap_gt,
-        -- Xuất trong kỳ
-        ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
-          THEN il.OutwardQuantity ELSE 0 END), 0)                        AS xuat_sl,
-        ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
-          THEN il.OutwardAmount   ELSE 0 END), 0)                        AS xuat_gt
-      FROM InventoryLedger il
-      LEFT JOIN Unit u ON u.UnitID = il.UnitID
-      WHERE il.InventoryItemCode IS NOT NULL
-        AND il.InventoryItemCode <> ''
-      GROUP BY il.InventoryItemCode
-      HAVING (
-        ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
-          THEN il.InwardQuantity - il.OutwardQuantity ELSE 0 END), 0) <> 0
-        OR ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
-          THEN il.InwardQuantity + il.OutwardQuantity ELSE 0 END), 0) > 0
+      WITH dau_ky AS (
+        SELECT
+          il.InventoryItemCode,
+          SUM(il.InwardQuantity)  - SUM(il.OutwardQuantity) AS sl,
+          SUM(il.InwardAmount)    - SUM(il.OutwardAmount)   AS gt
+        FROM InventoryLedger il
+        WHERE il.InventoryItemCode IS NOT NULL
+          AND il.InventoryItemCode <> ''
+          AND il.PostedDate < @tu_ngay
+        GROUP BY il.InventoryItemCode
+      ),
+      trong_ky AS (
+        SELECT
+          il.InventoryItemCode,
+          MAX(il.InventoryItemName)  AS ten_hang,
+          MAX(il.StockName)          AS kho,
+          MAX(u.UnitName)            AS dvt,
+          SUM(il.InwardQuantity)     AS nhap_sl,
+          SUM(il.InwardAmount)       AS nhap_gt,
+          SUM(il.OutwardQuantity)    AS xuat_sl,
+          SUM(il.OutwardAmount)      AS xuat_gt
+        FROM InventoryLedger il
+        LEFT JOIN Unit u ON u.UnitID = il.UnitID
+        WHERE il.InventoryItemCode IS NOT NULL
+          AND il.InventoryItemCode <> ''
+          AND il.PostedDate BETWEEN @tu_ngay AND @den_ngay
+        GROUP BY il.InventoryItemCode
+      ),
+      all_hang AS (
+        SELECT InventoryItemCode FROM dau_ky WHERE sl <> 0
+        UNION
+        SELECT InventoryItemCode FROM trong_ky
       )
-      ORDER BY MAX(il.InventoryItemName)
+      SELECT
+        a.InventoryItemCode                    AS ma_hang,
+        ISNULL(tk.ten_hang,
+          (SELECT TOP 1 InventoryItemName FROM InventoryLedger
+           WHERE InventoryItemCode = a.InventoryItemCode)) AS ten_hang,
+        tk.kho, tk.dvt,
+        ISNULL(dk.sl, 0)                       AS dau_ky_sl,
+        ISNULL(dk.gt, 0)                       AS dau_ky_gt,
+        ISNULL(tk.nhap_sl, 0)                  AS nhap_sl,
+        ISNULL(tk.nhap_gt, 0)                  AS nhap_gt,
+        ISNULL(tk.xuat_sl, 0)                  AS xuat_sl,
+        ISNULL(tk.xuat_gt, 0)                  AS xuat_gt
+      FROM all_hang a
+      LEFT JOIN dau_ky  dk ON dk.InventoryItemCode = a.InventoryItemCode
+      LEFT JOIN trong_ky tk ON tk.InventoryItemCode = a.InventoryItemCode
+      ORDER BY ten_hang
     `);
 
     let data = result.recordset.map(r => ({
@@ -124,7 +137,7 @@ router.get('/chi-tiet', async (req, res) => {
         il.PostedDate           AS ngay_hach_toan,
         il.RefDate              AS ngay_ct,
         il.RefNo                AS so_ct,
-        il.Description          AS dien_giai,
+        il.JournalMemo          AS dien_giai,
         u.UnitName              AS dvt,
         il.UnitPrice            AS don_gia,
         il.InwardQuantity       AS nhap_sl,
