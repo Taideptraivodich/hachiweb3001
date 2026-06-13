@@ -121,7 +121,14 @@ router.get('/chi-tiet', async (req, res) => {
         ISNULL(SUM(OutwardQuantity), 0) AS xuat_sl,
         ISNULL(SUM(InwardAmount),    0) AS nhap_gt,
         ISNULL(SUM(OutwardAmount),   0) AS xuat_gt,
-        MAX(InventoryItemName)          AS ten_hang
+        MAX(InventoryItemName)          AS ten_hang,
+        -- Đơn giá tồn: lấy từ dòng nhập gần nhất trước kỳ
+        (SELECT TOP 1 UnitPrice FROM InventoryLedger
+         WHERE InventoryItemCode = @ma_hang
+           AND PostedDate < @tu_ngay
+           AND InwardQuantity > 0
+           AND UnitPrice > 0
+         ORDER BY PostedDate DESC, SortOrder DESC) AS don_gia
       FROM InventoryLedger
       WHERE InventoryItemCode = @ma_hang
         AND PostedDate < @tu_ngay
@@ -174,6 +181,7 @@ router.get('/chi-tiet', async (req, res) => {
       ten_hang: tenHang,
       dau_ky_sl: dauKySL,
       dau_ky_gt: dauKyGT,
+      dau_ky_don_gia: Number(dk?.don_gia || 0),
       data: rows,
     });
   } catch (err) {

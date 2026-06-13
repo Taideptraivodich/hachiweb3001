@@ -23,23 +23,23 @@ const api = axios.create({ baseURL: '/api' });
 const COLOR_NO  = '#cf1322';
 const COLOR_CO  = '#389e0d';
 const COLOR_DU  = '#1677ff';
-const COLOR_ROW_ODD  = '#ffffff';
-const COLOR_ROW_EVEN = '#f9fafb';
-const COLOR_ROW_HOVER = '#eff6ff';
-const COLOR_HEADER_BG = '#f1f5f9';
-const COLOR_GROUP_BG  = '#f8fafc';
-const COLOR_BORDER    = '#e2e8f0';
+const COLOR_ROW_ODD  = 'var(--row-odd)';
+const COLOR_ROW_EVEN = 'var(--row-even)';
+const COLOR_ROW_HOVER = 'var(--row-hover)';
+const COLOR_HEADER_BG = 'var(--header-bg)';
+const COLOR_GROUP_BG  = 'var(--group-bg)';
+const COLOR_BORDER    = 'var(--border)';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmtMoney = (v) => {
   const n = Number(v) || 0;
-  if (n === 0) return <span style={{ color: '#94a3b8' }}>—</span>;
+  if (n === 0) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
   return <span>{formatMoney(n)}&nbsp;đ</span>;
 };
 
 const fmtMoneyColored = (v, color) => {
   const n = Number(v) || 0;
-  if (n === 0) return <span style={{ color: '#94a3b8' }}>—</span>;
+  if (n === 0) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
   return <span style={{ color, fontWeight: 500 }}>{formatMoney(n)}&nbsp;đ</span>;
 };
 
@@ -151,7 +151,7 @@ function TongHopTable({ data, onSelect, loading }) {
     textAlign: align,
     fontWeight: 600,
     fontSize: 12,
-    color: '#475569',
+    color: 'var(--text-sub)',
     background: COLOR_HEADER_BG,
     cursor: 'pointer',
     userSelect: 'none',
@@ -175,13 +175,13 @@ function TongHopTable({ data, onSelect, loading }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
         <Input
           placeholder="Tìm theo mã KH hoặc tên khách hàng..."
-          prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+          prefix={<SearchOutlined style={{ color: 'var(--text-muted)' }} />}
           value={search}
           onChange={e => setSearch(e.target.value)}
           allowClear
           style={{ maxWidth: 320 }}
         />
-        <Text style={{ color: '#64748b', fontSize: 13 }}>
+        <Text style={{ color: 'var(--text-sub)', fontSize: 13 }}>
           {filtered.length} khách hàng
         </Text>
       </div>
@@ -194,16 +194,16 @@ function TongHopTable({ data, onSelect, loading }) {
           border: `1px solid ${COLOR_BORDER}`, borderRadius: 8, overflow: 'hidden',
         }}>
           {[
-            { label: 'Dư đầu kỳ',      value: fmtShort(totals.dau_ky_no), color: '#1e293b' },
+            { label: 'Dư đầu kỳ',      value: fmtShort(totals.dau_ky_no), color: 'var(--text)' },
             { label: 'Phát sinh nợ',    value: fmtShort(totals.ps_no),     color: COLOR_NO  },
             { label: 'Phát sinh có',    value: fmtShort(totals.ps_co),     color: COLOR_CO  },
             { label: 'Còn phải thu',    value: fmtShort(totals.cuoi_ky),   color: COLOR_DU  },
           ].map(item => (
             <div key={item.label} style={{
-              padding: '12px 16px', background: '#fff',
+              padding: '12px 16px', background: 'var(--surface)',
               borderRight: `1px solid ${COLOR_BORDER}`,
             }}>
-              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-sub)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {item.label}
               </div>
               <div style={{ fontSize: 20, fontWeight: 700, color: item.color, fontVariantNumeric: 'tabular-nums' }}>
@@ -263,7 +263,7 @@ function TongHopTable({ data, onSelect, loading }) {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{
                             width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                            background: '#dbeafe', color: '#1d4ed8',
+                            background: 'var(--avatar-bg)', color: 'var(--avatar-color)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: 11, fontWeight: 700,
                           }}>
@@ -275,13 +275,13 @@ function TongHopTable({ data, onSelect, loading }) {
                       <td style={tdS()}>
                         {Number(r.dau_ky_no) - Number(r.dau_ky_co) > 0
                           ? fmtMoney(Number(r.dau_ky_no) - Number(r.dau_ky_co))
-                          : <span style={{ color: '#94a3b8' }}>—</span>}
+                          : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
                       <td style={tdS()}>
-                        {Number(r.ps_no) > 0 ? fmtMoneyColored(r.ps_no, COLOR_NO) : <span style={{ color: '#94a3b8' }}>—</span>}
+                        {Number(r.ps_no) > 0 ? fmtMoneyColored(r.ps_no, COLOR_NO) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
                       <td style={tdS()}>
-                        {Number(r.ps_co) > 0 ? fmtMoneyColored(r.ps_co, COLOR_CO) : <span style={{ color: '#94a3b8' }}>—</span>}
+                        {Number(r.ps_co) > 0 ? fmtMoneyColored(r.ps_co, COLOR_CO) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
                       <td style={tdS()}>
                         {Number(r.du_no_net) > 0
@@ -356,7 +356,7 @@ function ChiTietPanel({ kh, range, onBack }) {
   const thS = (align = 'right') => ({
     padding: '7px 12px', textAlign: align,
     fontWeight: 600, fontSize: 11.5,
-    color: '#475569', background: COLOR_HEADER_BG,
+    color: 'var(--text-sub)', background: COLOR_HEADER_BG,
     borderBottom: `1px solid ${COLOR_BORDER}`,
     borderRight: `1px solid ${COLOR_BORDER}`,
     whiteSpace: 'nowrap',
@@ -381,7 +381,7 @@ function ChiTietPanel({ kh, range, onBack }) {
         </Button>
         <div style={{
           width: 36, height: 36, borderRadius: '50%',
-          background: '#dbeafe', color: '#1d4ed8',
+          background: 'var(--avatar-bg)', color: 'var(--avatar-color)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 14, fontWeight: 700, flexShrink: 0,
         }}>
@@ -389,7 +389,7 @@ function ChiTietPanel({ kh, range, onBack }) {
         </div>
         <div>
           <div style={{ fontWeight: 600, fontSize: 15 }}>{kh.ten_kh || kh.ma_kh}</div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-sub)', marginTop: 2 }}>
             <Text code style={{ fontSize: 11 }}>{kh.ma_kh}</Text>
             &nbsp;·&nbsp;TK 131
             &nbsp;·&nbsp;{range[0]?.format('DD/MM/YYYY')} – {range[1]?.format('DD/MM/YYYY')}
@@ -406,12 +406,12 @@ function ChiTietPanel({ kh, range, onBack }) {
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6,
               padding: '5px 10px', borderRadius: 6,
-              background: hideVat ? '#eff6ff' : '#f8fafc',
-              border: `1px solid ${hideVat ? '#bfdbfe' : COLOR_BORDER}`,
+              background: 'var(--tag-bg)',
+              border: `1px solid var(--tag-border)`,
               cursor: 'pointer',
             }} onClick={() => setHideVat(v => !v)}>
-              {hideVat ? <EyeInvisibleOutlined style={{ color: '#3b82f6', fontSize: 13 }} /> : <EyeOutlined style={{ color: '#64748b', fontSize: 13 }} />}
-              <span style={{ fontSize: 12, color: hideVat ? '#1d4ed8' : '#64748b', fontWeight: hideVat ? 500 : 400 }}>
+              {hideVat ? <EyeInvisibleOutlined style={{ color: 'var(--avatar-color)', fontSize: 13 }} /> : <EyeOutlined style={{ color: 'var(--text-sub)', fontSize: 13 }} />}
+              <span style={{ fontSize: 12, color: 'var(--text-sub)', fontWeight: hideVat ? 500 : 400 }}>
                 {hideVat ? `Thuế gộp vào hàng (${vatCount} dòng)` : `Hiện thuế riêng (${vatCount} dòng)`}
               </span>
             </div>
@@ -419,7 +419,7 @@ function ChiTietPanel({ kh, range, onBack }) {
         )}
 
         <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-          <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Còn phải thu</div>
+          <div style={{ fontSize: 11, color: 'var(--text-sub)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Còn phải thu</div>
           <div style={{ fontSize: 20, fontWeight: 700, color: duNoNet > 0 ? COLOR_DU : COLOR_CO }}>
             {formatMoney(Math.abs(duNoNet))}&nbsp;đ
           </div>
@@ -434,15 +434,15 @@ function ChiTietPanel({ kh, range, onBack }) {
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               padding: '7px 14px', marginBottom: 16,
-              background: '#f8fafc', border: `1px solid ${COLOR_BORDER}`,
+              background: 'var(--surface-2)', border: `1px solid ${COLOR_BORDER}`,
               borderRadius: 6, fontSize: 13,
             }}>
-              <span style={{ color: '#64748b' }}>Số dư đầu kỳ:</span>
+              <span style={{ color: 'var(--text-sub)' }}>Số dư đầu kỳ:</span>
               <span style={{ fontWeight: 600 }}>{formatMoney(Math.abs(dauKyNet))}&nbsp;đ</span>
               <Tag style={{ margin: 0, fontSize: 11 }} color={dauKyNet >= 0 ? 'blue' : 'green'}>
                 {dauKyNet >= 0 ? 'Nợ' : 'Có'}
               </Tag>
-              <span style={{ color: '#94a3b8', fontSize: 12 }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                 · {displayRows.length} dòng phát sinh
               </span>
             </div>
@@ -467,22 +467,22 @@ function ChiTietPanel({ kh, range, onBack }) {
                       borderBottom: 'none',
                       borderRadius: '8px 8px 0 0',
                     }}>
-                      <CalendarOutlined style={{ color: '#64748b', fontSize: 12 }} />
-                      <span style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>
+                      <CalendarOutlined style={{ color: 'var(--text-sub)', fontSize: 12 }} />
+                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
                         {dayjs(ngay).format('dddd, DD/MM/YYYY').replace(/^\w/, c => c.toUpperCase())}
                       </span>
                       <div style={{ marginLeft: 'auto', display: 'flex', gap: 16, fontSize: 12 }}>
                         {tongNo > 0 && (
-                          <span style={{ color: '#64748b' }}>
+                          <span style={{ color: 'var(--text-sub)' }}>
                             Nợ:&nbsp;<span style={{ color: COLOR_NO, fontWeight: 600 }}>{fmtShort(tongNo)}</span>
                           </span>
                         )}
                         {tongCo > 0 && (
-                          <span style={{ color: '#64748b' }}>
+                          <span style={{ color: 'var(--text-sub)' }}>
                             Có:&nbsp;<span style={{ color: COLOR_CO, fontWeight: 600 }}>{fmtShort(tongCo)}</span>
                           </span>
                         )}
-                        <span style={{ color: '#64748b' }}>
+                        <span style={{ color: 'var(--text-sub)' }}>
                           Số dư:&nbsp;<span style={{ color: COLOR_DU, fontWeight: 600 }}>{fmtShort(soDuCuoi)}</span>
                         </span>
                       </div>
@@ -512,7 +512,7 @@ function ChiTietPanel({ kh, range, onBack }) {
                               </td>
                               <td style={{ ...tdS('left'), maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 <span title={r.dien_giai}>
-                                  {r.dien_giai || <span style={{ color: '#94a3b8' }}>—</span>}
+                                  {r.dien_giai || <span style={{ color: 'var(--text-muted)' }}>—</span>}
                                 </span>
                                 {r._vatMerged > 0 && (
                                   <Tooltip title={`Đã gộp ${r._vatMerged} dòng thuế GTGT vào đây`}>
@@ -528,17 +528,17 @@ function ChiTietPanel({ kh, range, onBack }) {
                               <td style={{ ...tdS('right') }}>
                                 {Number(r.ps_no) > 0
                                   ? <span style={{ color: COLOR_NO, fontWeight: 500 }}>{formatMoney(r.ps_no)}&nbsp;đ</span>
-                                  : <span style={{ color: '#94a3b8' }}>—</span>}
+                                  : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                               </td>
                               <td style={{ ...tdS('right') }}>
                                 {Number(r.ps_co) > 0
                                   ? <span style={{ color: COLOR_CO, fontWeight: 500 }}>{formatMoney(r.ps_co)}&nbsp;đ</span>
-                                  : <span style={{ color: '#94a3b8' }}>—</span>}
+                                  : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                               </td>
                               <td style={{ ...tdS('right'), borderRight: 'none' }}>
                                 <span style={{ fontWeight: 600, color: Number(r.so_du) >= 0 ? COLOR_DU : COLOR_CO }}>
                                   {formatMoney(Math.abs(r.so_du))}&nbsp;đ
-                                  <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 3 }}>
+                                  <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 3 }}>
                                     {Number(r.so_du) >= 0 ? 'Nợ' : 'Có'}
                                   </span>
                                 </span>
@@ -613,14 +613,14 @@ export default function CongNo() {
             </Button>
             {loaded && <Button icon={<ReloadOutlined />} onClick={loadData}>Làm mới</Button>}
             {loaded && (
-              <Text style={{ color: '#64748b', fontSize: 12 }}>
+              <Text style={{ color: 'var(--text-sub)', fontSize: 12 }}>
                 Từ {range[0]?.format('DD/MM/YYYY')} đến {range[1]?.format('DD/MM/YYYY')}
               </Text>
             )}
           </div>
 
           {!loaded && !loading && (
-            <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}>
+            <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
               <UserOutlined style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }} />
               <div style={{ fontSize: 14 }}>Chọn kỳ và nhấn <b>Xem công nợ</b></div>
             </div>
