@@ -59,52 +59,39 @@ function groupBy(arr, keyFn) {
   }, {});
 }
 
-// Gộp dòng thuế GTGT (tk_du 33311x) vào dòng hàng cùng RefNo
-// Tính lại số dư lũy kế sau khi gộp
+// Gộp dòng thuế GTGT vào dòng hàng liền trên nó (cùng số chứng từ)
+// Backend trả về đúng thứ tự: hàng → thuế hàng → hàng → thuế hàng
 function mergeVatRows(rows, dauKyNet) {
-  // Bước 1: với mỗi RefNo, cộng ps_no/ps_co của dòng thuế vào dòng hàng đầu tiên
-  const grouped = {};
-  const order = [];
-  rows.forEach(r => {
-    const key = r.so_ct || r.refno || '_';
-    const isTax = (r.tk_du || '').startsWith('33311');
-    if (!grouped[key]) {
-      grouped[key] = [];
-      order.push(key);
-    }
-    grouped[key].push({ ...r, _isTax: isTax });
-  });
-
   const merged = [];
-  order.forEach(key => {
-    const group = grouped[key];
-    const mainRows = group.filter(r => !r._isTax);
-    const taxRows  = group.filter(r => r._isTax);
 
-    if (taxRows.length === 0 || mainRows.length === 0) {
-      group.forEach(r => merged.push(r));
-      return;
-    }
+  rows.forEach(r => {
+    const isTax = (r.tk_du || '').startsWith('33311');
 
-    // Cộng tổng thuế vào dòng đầu tiên của nhóm
-    const taxNo = taxRows.reduce((s, r) => s + Number(r.ps_no || 0), 0);
-    const taxCo = taxRows.reduce((s, r) => s + Number(r.ps_co || 0), 0);
-
-    mainRows.forEach((r, i) => {
-      if (i === 0) {
-        merged.push({
-          ...r,
-          ps_no: Number(r.ps_no || 0) + taxNo,
-          ps_co: Number(r.ps_co || 0) + taxCo,
-          _vatMerged: taxRows.length,
-        });
-      } else {
-        merged.push(r);
+    if (isTax) {
+      // Tìm dòng hàng liền trên cùng số chứng từ
+      let targetIdx = -1;
+      for (let i = merged.length - 1; i >= 0; i--) {
+        if (merged[i].so_ct === r.so_ct && !merged[i]._isTax) {
+          targetIdx = i;
+          break;
+        }
       }
-    });
+      if (targetIdx !== -1) {
+        // Cộng thuế vào đúng dòng hàng đó
+        merged[targetIdx] = {
+          ...merged[targetIdx],
+          ps_no: Number(merged[targetIdx].ps_no || 0) + Number(r.ps_no || 0),
+          ps_co: Number(merged[targetIdx].ps_co || 0) + Number(r.ps_co || 0),
+          _vatMerged: (merged[targetIdx]._vatMerged || 0) + 1,
+        };
+      }
+      // Không tìm được → bỏ qua dòng thuế
+    } else {
+      merged.push({ ...r, _isTax: false });
+    }
   });
 
-  // Bước 2: tính lại số dư lũy kế
+  // Tính lại số dư lũy kế
   let soDu = dauKyNet;
   return merged.map(r => {
     soDu += Number(r.ps_no || 0) - Number(r.ps_co || 0);
