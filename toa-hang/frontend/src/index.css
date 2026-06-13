@@ -28,9 +28,9 @@ body.dark {
   --surface-2:    #1e293b;
   --surface-3:    #0f172a;
   --border:       #334155;
-  --text:         #f1f5f9;
-  --text-sub:     #94a3b8;
-  --text-muted:   #475569;
+  --text:         #ffffff;
+  --text-sub:     #cbd5e1;
+  --text-muted:   #94a3b8;
   --row-odd:      #1e293b;
   --row-even:     #172032;
   --row-hover:    #1d3a5f;
@@ -63,7 +63,7 @@ body.dark .ant-layout-content {
 
 body.dark .ant-card {
   background: #1f1f1f !important;
-  border-color: #303030 !important;
+  border-color: #4a5568 !important;
 }
 
 body.dark .ant-drawer-content {

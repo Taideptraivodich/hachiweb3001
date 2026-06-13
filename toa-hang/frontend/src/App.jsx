@@ -16,7 +16,7 @@ const { Text } = Typography;
 
 export default function App() {
   const [page, setPage]     = useState('orders');
-  const [syncing, setSyncing] = useState(false);
+  const [syncing, setSyncing] = useState(true);
   const [lastSync, setLastSync] = useState(null);
   const [dark, setDark]     = useState(false);
 

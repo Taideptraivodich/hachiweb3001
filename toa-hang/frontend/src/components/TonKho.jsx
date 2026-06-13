@@ -424,12 +424,12 @@ function ChiTietPanel({ hang, initialRange, onBack }) {
               display:'inline-flex', alignItems:'center', gap:8,
               padding:'7px 14px', marginBottom:16,
               background:C.cardBg, border:`1px solid ${C.border}`,
-              borderRadius:6, fontSize:16,
+              borderRadius:6, fontSize:14,
             }}>
               <span style={{ color:C.sub }}>Tồn đầu kỳ:</span>
               <span style={{ fontWeight:600, color:C.text }}>{dauKySL.toLocaleString('vi-VN')}</span>
               {dauKyDonGia > 0 && (
-                <Tag color="blue" style={{ margin:0, fontSize:11 }}>
+                <Tag color="blue" style={{ margin:0, fontSize:14 }}>
                   Đơn giá: {fmt(dauKyDonGia)}
                 </Tag>
               )}
