@@ -2,7 +2,6 @@ const { getDb, saveDb } = require('./sqlite');
 
 async function setupDatabase() {
   const db = await getDb();
-
   const tables = [
     `CREATE TABLE IF NOT EXISTS product_cache (
       ma_hang TEXT PRIMARY KEY, ten_hang TEXT NOT NULL, kho TEXT,
@@ -33,19 +32,32 @@ async function setupDatabase() {
       ten_kh TEXT, ma_kh TEXT, ngay_xuat TEXT, gia_von REAL,
       nha_cc TEXT, ghi_chu TEXT,
       imported_at TEXT DEFAULT (datetime('now','localtime')))`,
-    `CREATE INDEX IF NOT EXISTS idx_history_ma_hang ON sales_history(ma_hang)`,
-    `CREATE INDEX IF NOT EXISTS idx_history_ma_kh   ON sales_history(ma_kh)`,
-    `CREATE INDEX IF NOT EXISTS idx_history_ngay    ON sales_history(ngay_xuat)`,
-    `CREATE INDEX IF NOT EXISTS idx_orders_ngay     ON orders(ngay_tao)`,
-    `CREATE INDEX IF NOT EXISTS idx_orders_ma_kh    ON orders(ma_kh)`,
+
+    `CREATE TABLE IF NOT EXISTS ma_ngoai (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      ma_hang     TEXT NOT NULL,
+      ma_ngoai    TEXT NOT NULL,
+      nha_cc      TEXT DEFAULT '',
+      xe_ap_dung  TEXT DEFAULT '',
+      vi_tri      TEXT DEFAULT '',
+      ghi_chu     TEXT DEFAULT '',
+      created_at  TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(ma_hang, ma_ngoai)
+    )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_ma_ngoai_ma_hang  ON ma_ngoai(ma_hang)`,
+    `CREATE INDEX IF NOT EXISTS idx_ma_ngoai_ma_ngoai ON ma_ngoai(ma_ngoai)`,
+    `CREATE INDEX IF NOT EXISTS idx_history_ma_hang   ON sales_history(ma_hang)`,
+    `CREATE INDEX IF NOT EXISTS idx_history_ma_kh     ON sales_history(ma_kh)`,
+    `CREATE INDEX IF NOT EXISTS idx_history_ngay      ON sales_history(ngay_xuat)`,
+    `CREATE INDEX IF NOT EXISTS idx_orders_ngay       ON orders(ngay_tao)`,
+    `CREATE INDEX IF NOT EXISTS idx_orders_ma_kh      ON orders(ma_kh)`,
     `CREATE INDEX IF NOT EXISTS idx_orders_trang_thai ON orders(trang_thai)`,
-    `CREATE INDEX IF NOT EXISTS idx_detail_ma_hang  ON order_details(ma_hang)`,
-    `CREATE INDEX IF NOT EXISTS idx_product_ten     ON product_cache(ten_hang)`,
-    `CREATE INDEX IF NOT EXISTS idx_customer_ten    ON customer_cache(ten_kh)`,
+    `CREATE INDEX IF NOT EXISTS idx_detail_ma_hang    ON order_details(ma_hang)`,
+    `CREATE INDEX IF NOT EXISTS idx_product_ten       ON product_cache(ten_hang)`,
+    `CREATE INDEX IF NOT EXISTS idx_customer_ten      ON customer_cache(ten_kh)`,
   ];
-
   for (const sql of tables) db.run(sql);
-
   saveDb(db);
   console.log('✅ SQLite database ready:', require('path').join(__dirname,'..','data','toa-hang.db'));
 }

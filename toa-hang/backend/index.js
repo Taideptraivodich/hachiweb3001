@@ -20,6 +20,7 @@ app.use(express.json());
 
 // API routes
 app.use('/api/products',  productsRouter);
+app.use('/api/ma-ngoai', require('./src/routes/ma_ngoai'));
 app.use('/api/orders',    ordersRouter);
 app.use('/api/reports',   reportsRouter);
 app.use('/api/history',   historyRouter);

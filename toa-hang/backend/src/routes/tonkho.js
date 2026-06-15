@@ -59,6 +59,10 @@ router.get('/tong-hop', async (req, res) => {
       )
       SELECT
         a.InventoryItemCode                    AS ma_hang,
+  (SELECT TOP 1 UnitPrice FROM InventoryLedger
+   WHERE InventoryItemCode = a.InventoryItemCode
+     AND InwardQuantity > 0 AND UnitPrice > 0
+   ORDER BY PostedDate DESC, SortOrder DESC) AS don_gia,
         ISNULL(tk.ten_hang,
           (SELECT TOP 1 InventoryItemName FROM InventoryLedger
            WHERE InventoryItemCode = a.InventoryItemCode)) AS ten_hang,

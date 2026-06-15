@@ -3,12 +3,13 @@ import { Layout, Menu, Typography, Button, message, Space, ConfigProvider, theme
 import {
   FileTextOutlined, BarChartOutlined, ReloadOutlined,
   DatabaseOutlined, BankOutlined, InboxOutlined,
-  SunOutlined, MoonOutlined,
+  SunOutlined, MoonOutlined, TagsOutlined,
 } from '@ant-design/icons';
 import OrderList from './components/OrderList';
 import Reports   from './components/Reports';
 import CongNo    from './components/CongNo';
 import TonKho    from './components/TonKho';
+import MaNgoai   from './components/MaNgoai';
 import { syncProducts, syncCustomers } from './api';
 
 const { Header, Content, Sider } = Layout;
@@ -20,7 +21,7 @@ export default function App() {
   const [lastSync, setLastSync] = useState(null);
   const [dark, setDark]     = useState(false);
 
-  // Toggle class dark trên body → CSS variables tự đổi toàn app
+  // Toggle class dark trên body → CSS variables toàn app
   useEffect(() => {
     document.body.classList.toggle('dark', dark);
   }, [dark]);
@@ -92,15 +93,17 @@ export default function App() {
                 { key: 'reports', icon: <BarChartOutlined />, label: 'Báo cáo'   },
                 { key: 'congno',  icon: <BankOutlined />,     label: 'Công nợ'   },
                 { key: 'tonkho',  icon: <InboxOutlined />,    label: 'Tồn kho'   },
+                { key: 'manggoai', icon: <TagsOutlined />,    label: 'Mã ngoài'  },
               ]}
             />
           </Sider>
 
           <Content style={{ padding: 16, minHeight: 'calc(100vh - 64px)' }}>
-            {page === 'orders'  && <OrderList />}
-            {page === 'reports' && <Reports />}
-            {page === 'congno'  && <CongNo />}
-            {page === 'tonkho'  && <TonKho />}
+            {page === 'orders'   && <OrderList />}
+            {page === 'reports'  && <Reports />}
+            {page === 'congno'   && <CongNo />}
+            {page === 'tonkho'   && <TonKho />}
+            {page === 'manggoai' && <MaNgoai />}
           </Content>
         </Layout>
       </Layout>
