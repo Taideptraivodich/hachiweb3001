@@ -117,7 +117,63 @@ router.delete('/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── POST /api/ma-ngoai/import — import Excel ─────────────────────────────────
+
+// ── Detect schema cho từng sheet ──────────────────────────────────────────────
+function detectSchema(rows) {
+  let headerIdx = 0, maxCols = 0;
+  rows.forEach((r, i) => {
+    if (i > 7) return;
+    const filled = r.filter(c => String(c || '').trim() !== '').length;
+    if (filled > maxCols) { maxCols = filled; headerIdx = i; }
+  });
+
+  const h = rows[headerIdx].map(c =>
+    String(c || '').trim().toUpperCase().replace(/\n/g, ' ').replace(/\s+/g, ' ')
+  );
+  const fi = keywords => h.findIndex(col =>
+    (Array.isArray(keywords) ? keywords : [keywords]).some(k => col.includes(k))
+  );
+
+  // Cột mã tồn kho MISA có sẵn trong file (ROTUYN=Mã Rotuyn, ADVICS=Type, CYLINDER=Type, OIL FILTER=Type, WATERPUMP=Mã SP)
+  // Cột mã tồn kho MISA có sẵn trong file
+  // ROTUYN → "Mã Rotuyn", ADVICS/CYLINDER/OIL FILTER → "Type"
+  const colMaTonKho = fi(['MÃ ROTUYN','MA ROTUYN','TYPE']);
+
+  // Cột mã ngoài nhà CC — MÃ MK ưu tiên hơn MÃ OEM
+  // MÃ MK = mã nhà CC (dùng hàng ngày), MÃ OEM = mã nhà sản xuất xe (ít dùng hơn)
+  let colMaNgoai = fi(['MÃ 555','MA 555','MÃ MK','MA MK','MÃ SAKURA','MA SAKURA','PART NO']);
+  // Nếu chưa tìm được, thử MÃ OEM — nhưng chỉ khi không trùng colMaTonKho
+  if (colMaNgoai < 0) {
+    const colOem = fi(['MÃ OEM','MA OEM']);
+    if (colOem >= 0 && colOem !== colMaTonKho) colMaNgoai = colOem;
+  }
+
+  // Fallback: cột đầu có data dạng mã (chuỗi, không phải số thuần)
+  if (colMaNgoai < 0) {
+    const dataRows = rows.slice(headerIdx + 1, headerIdx + 10)
+      .filter(r => r.some(c => String(c || '').trim() !== ''));
+    for (let ci = 0; ci < Math.min(h.length, 6); ci++) {
+      const samples = dataRows
+        .map(r => String(r[ci] || '').trim())
+        .filter(v => v && isNaN(Number(v)) && v.length >= 3 && !/^(còn|hết|con|het)/i.test(v));
+      if (samples.length >= 2) { colMaNgoai = ci; break; }
+    }
+  }
+  if (colMaNgoai < 0) colMaNgoai = 0;
+
+  const colViTri    = fi(['VỊ TRÍ','VI TRI','POSITION']);
+  const colXeApDung = fi(['LOẠI XE','LOAI XE','MODEL','XE ÁP DỤNG']);
+
+  return {
+    headerIdx,
+    colMaNgoai,
+    colMaTonKho: colMaTonKho >= 0 && colMaTonKho !== colMaNgoai ? colMaTonKho : -1,
+    colViTri,
+    colXeApDung,
+  };
+}
+
+// ── POST /api/ma-ngoai/import — import Excel ──────────────────────────────────
 router.post('/import', upload.single('file'), async (req, res) => {
   try {
     const db = await getDb();
@@ -125,57 +181,62 @@ router.post('/import', upload.single('file'), async (req, res) => {
 
     const wb       = XLSX.read(req.file.buffer, { type: 'buffer' });
     const dsMaHang = dbQuery(db, 'SELECT ma_hang FROM product_cache', {}).map(r => r.ma_hang);
-
-    const results = { matched: 0, unmatched: 0, skipped: 0, suggestions: [] };
+    const results  = { matched: 0, unmatched: 0, skipped: 0, suggestions: [] };
 
     for (const sheetName of wb.SheetNames) {
       const ws   = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      if (rows.length < 2) continue;
+      if (rows.length < 3) continue;
 
-      let headerIdx = 0;
-      let maxCols   = 0;
-      rows.forEach((r, i) => {
-        const filled = r.filter(c => c !== '').length;
-        if (filled > maxCols) { maxCols = filled; headerIdx = i; }
-      });
-
-      const headers = rows[headerIdx].map(h => String(h).trim().toUpperCase());
-      const colMa   = 0;
-      const colVi   = headers.findIndex(h => h.includes('VỊ TRÍ') || h.includes('POSITION') || h === 'TYPE');
-      const colXe   = headers.findIndex(h => h.includes('XE') || h.includes('MODEL') || h.includes('LOẠI XE'));
+      const { headerIdx, colMaNgoai, colMaTonKho, colViTri, colXeApDung } = detectSchema(rows);
 
       for (let i = headerIdx + 1; i < rows.length; i++) {
-        const row  = rows[i];
-        const maEx = String(row[colMa] || '').trim();
-        if (!maEx || maEx.length < 2) { results.skipped++; continue; }
+        const row    = rows[i];
+        const filled = row.filter(c => String(c || '').trim() !== '').length;
+        if (filled < 2) { results.skipped++; continue; }
 
-        const viTri = colVi >= 0 ? String(row[colVi] || '').trim() : '';
-        const xeAp  = colXe >= 0 ? String(row[colXe] || '').trim() : '';
+        const maNgoai = String(row[colMaNgoai] || '').trim();
+        if (!maNgoai || maNgoai.length < 2 || !isNaN(Number(maNgoai))) { results.skipped++; continue; }
+        if (/^(còn|hết|con|het)\s*hàng/i.test(maNgoai)) { results.skipped++; continue; }
 
-        const match = findBestMatch(maEx, dsMaHang);
+        const viTri    = colViTri    >= 0 ? String(row[colViTri]    || '').trim() : '';
+        const xeApDung = colXeApDung >= 0 ? String(row[colXeApDung] || '').trim() : '';
 
+        // Sheet có sẵn mã MISA (ROTUYN) → dùng thẳng, không cần fuzzy
+        if (colMaTonKho >= 0) {
+          const maTonKho = String(row[colMaTonKho] || '').trim();
+          if (!maTonKho || maTonKho.length < 3) { results.skipped++; continue; }
+          const inCache = dsMaHang.find(m =>
+            m.toUpperCase().replace(/-/g,'') === maTonKho.toUpperCase().replace(/-/g,'')
+          );
+          dbRun(db, `
+            INSERT INTO ma_ngoai (ma_hang, ma_ngoai, nha_cc, xe_ap_dung, vi_tri, ghi_chu)
+            VALUES (?, ?, ?, ?, ?, '')
+            ON CONFLICT(ma_hang, ma_ngoai) DO UPDATE SET
+              nha_cc=excluded.nha_cc, xe_ap_dung=excluded.xe_ap_dung, vi_tri=excluded.vi_tri
+          `, [inCache || maTonKho, maNgoai, sheetName, xeApDung, viTri]);
+          results.matched++;
+          continue;
+        }
+
+        // Fuzzy match mã ngoài → mã tồn kho
+        const match = findBestMatch(maNgoai, dsMaHang);
         if (!match) {
           results.unmatched++;
-          results.suggestions.push({ ma_excel: maEx, nha_cc: sheetName, xe_ap_dung: xeAp, vi_tri: viTri, ma_hang: null });
+          results.suggestions.push({ ma_excel: maNgoai, nha_cc: sheetName, xe_ap_dung: xeApDung, vi_tri: viTri, ma_hang: null });
           continue;
         }
-
         if (match.suggestions) {
-          results.suggestions.push({
-            ma_excel: maEx, nha_cc: sheetName, xe_ap_dung: xeAp, vi_tri: viTri,
-            ma_hang: null, candidates: match.suggestions,
-          });
+          results.suggestions.push({ ma_excel: maNgoai, nha_cc: sheetName, xe_ap_dung: xeApDung, vi_tri: viTri, ma_hang: null, candidates: match.suggestions });
           results.unmatched++;
           continue;
         }
-
         dbRun(db, `
           INSERT INTO ma_ngoai (ma_hang, ma_ngoai, nha_cc, xe_ap_dung, vi_tri, ghi_chu)
           VALUES (?, ?, ?, ?, ?, '')
           ON CONFLICT(ma_hang, ma_ngoai) DO UPDATE SET
             nha_cc=excluded.nha_cc, xe_ap_dung=excluded.xe_ap_dung, vi_tri=excluded.vi_tri
-        `, [match.ma_hang, maEx, sheetName, xeAp, viTri]);
+        `, [match.ma_hang, maNgoai, sheetName, xeApDung, viTri]);
         results.matched++;
       }
     }

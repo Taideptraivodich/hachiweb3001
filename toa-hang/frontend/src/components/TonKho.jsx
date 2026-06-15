@@ -310,7 +310,7 @@ const TongHopTable = React.memo(TongHopTableInner, (prev, next) =>
 );
 
 // ─── Panel chi tiết ───────────────────────────────────────────────────────────
-function ChiTietPanel({ hang, initialRange, onBack }) {
+export function ChiTietPanel({ hang, initialRange, onBack }) {
   const [range, setRange]     = useState(initialRange);
   const [data, setData]       = useState(null);
   const [loading, setLoad]    = useState(false);

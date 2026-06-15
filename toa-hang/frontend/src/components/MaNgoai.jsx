@@ -9,6 +9,9 @@ import {
   QuestionCircleOutlined, InboxOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
+import dayjs from 'dayjs';
+import { ChiTietPanel } from './TonKho';
+import { formatMoney } from '../utils';
 
 const { Text } = Typography;
 const api = axios.create({ baseURL: '/api' });
@@ -161,10 +164,11 @@ export default function MaNgoai() {
   const [dsNhaCC, setDsNhaCC]   = useState([]);
   const [dsMaHang, setDsMaHang] = useState([]);
 
-  const [drawerOpen, setDrawer]   = useState(false);
-  const [editItem, setEdit]       = useState(null);
-  const [importing, setImporting] = useState(false);
-  const [confirmData, setConfirm] = useState(null); // unmatched items
+  const [drawerOpen, setDrawer]     = useState(false);
+  const [editItem, setEdit]         = useState(null);
+  const [importing, setImporting]   = useState(false);
+  const [confirmData, setConfirm]   = useState(null);
+  const [chiTietHang, setChiTietHang] = useState(null); // drill-down tồn kho
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -261,11 +265,24 @@ export default function MaNgoai() {
       render: v => v || <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
     },
     {
+      title: 'Đơn giá', dataIndex: 'gia_von', width: 110, align: 'right',
+      render: v => Number(v) > 0
+        ? <span style={{ color: '#475569', fontSize: 12 }}>{formatMoney(v)}</span>
+        : <span style={{ color: '#94a3b8' }}>—</span>
+    },
+    {
       title: 'Tồn kho', dataIndex: 'ton_kho', width: 80, align: 'center',
-      render: v => {
+      render: (v, row) => {
         const n = Number(v || 0);
         const color = n > 5 ? '#16a34a' : n > 0 ? '#d97706' : '#dc2626';
-        return <span style={{ fontWeight: 600, color }}>{n}</span>;
+        return (
+          <Tooltip title="Xem chi tiết tồn kho">
+            <span
+              style={{ fontWeight: 700, color, cursor: 'pointer', textDecoration: 'underline dotted' }}
+              onClick={e => { e.stopPropagation(); setChiTietHang(row); }}
+            >{n}</span>
+          </Tooltip>
+        );
       }
     },
     {
@@ -273,10 +290,11 @@ export default function MaNgoai() {
       render: (_, row) => (
         <Space size={4}>
           <Button size="small" icon={<EditOutlined />} type="text"
-            onClick={() => { setEdit(row); setDrawer(true); }} />
+            onClick={e => { e.stopPropagation(); setEdit(row); setDrawer(true); }} />
           <Popconfirm title="Xóa mã này?" onConfirm={() => handleDelete(row.id)}
             okText="Xóa" cancelText="Hủy" okButtonProps={{ danger: true }}>
-            <Button size="small" icon={<DeleteOutlined />} type="text" danger />
+            <Button size="small" icon={<DeleteOutlined />} type="text" danger
+              onClick={e => e.stopPropagation()} />
           </Popconfirm>
         </Space>
       )
@@ -322,6 +340,10 @@ export default function MaNgoai() {
         rowKey="id"
         loading={loading}
         size="small"
+        onRow={row => ({
+          onClick: () => setChiTietHang(row),
+          style: { cursor: 'pointer' },
+        })}
         pagination={{
           current: page, total, pageSize: 50,
           onChange: setPage,
@@ -348,6 +370,25 @@ export default function MaNgoai() {
           onClose={() => setConfirm(null)}
         />
       )}
+
+      {/* Modal chi tiết tồn kho */}
+      <Modal
+        open={!!chiTietHang}
+        onCancel={() => setChiTietHang(null)}
+        footer={null}
+        width="90vw"
+        styles={{ body: { padding: '20px 24px', maxHeight: '80vh', overflowY: 'auto' } }}
+        title={null}
+        destroyOnClose
+      >
+        {chiTietHang && (
+          <ChiTietPanel
+            hang={chiTietHang}
+            initialRange={[dayjs().startOf('month'), dayjs()]}
+            onBack={() => setChiTietHang(null)}
+          />
+        )}
+      </Modal>
     </div>
   );
 }
