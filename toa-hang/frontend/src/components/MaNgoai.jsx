@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Table, Button, Input, Select, Space, Tag, Typography,
   message, Drawer, Form, Upload, Modal, Tooltip, Popconfirm
@@ -169,6 +169,16 @@ export default function MaNgoai() {
   const [importing, setImporting]   = useState(false);
   const [confirmData, setConfirm]   = useState(null);
   const [chiTietHang, setChiTietHang] = useState(null); // drill-down tồn kho
+  const debounceRef = useRef(null);
+
+  function handleSearchChange(e) {
+    const val = e.target.value;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setFilters(f => ({ ...f, q: val }));
+      setPage(1);
+    }, 250);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -308,8 +318,10 @@ export default function MaNgoai() {
         <Input.Search
           placeholder="Tìm mã tồn kho, mã ngoài, tên hàng..."
           style={{ width: 280 }}
+          onChange={handleSearchChange}
           onSearch={q => { setFilters(f => ({ ...f, q })); setPage(1); }}
           allowClear
+          onClear={() => { setFilters(f => ({ ...f, q: '' })); setPage(1); }}
         />
         <Select
           placeholder="Tất cả nhà CC" allowClear style={{ width: 160 }}

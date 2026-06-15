@@ -45,7 +45,7 @@ router.get('/', async (req, res) => {
 
     let where = ['1=1'], params = {};
     if (q) {
-      where.push('(mn.ma_hang LIKE $q OR mn.ma_ngoai LIKE $q OR p.ten_hang LIKE $q)');
+      where.push('(mn.ma_hang LIKE $q OR mn.ma_ngoai LIKE $q OR p.ten_hang LIKE $q OR mn.xe_ap_dung LIKE $q OR mn.nha_cc LIKE $q)');
       params.$q = `%${q}%`;
     }
     if (nha_cc) { where.push('mn.nha_cc = $nha_cc'); params.$nha_cc = nha_cc; }
