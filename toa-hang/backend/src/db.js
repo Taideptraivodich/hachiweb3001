@@ -1,8 +1,8 @@
 require('dotenv').config();
 const sql = require('mssql');
-
 const misaConfig = {
   server:   process.env.MISA_HOST,
+  port:     parseInt(process.env.MISA_PORT) || 1433,
   database: process.env.MISA_DATABASE,
   user:     process.env.MISA_USER,
   password: process.env.MISA_PASSWORD,
@@ -10,8 +10,7 @@ const misaConfig = {
     encrypt: false,
     trustServerCertificate: true,
     enableArithAbort: true,
-    instanceName: process.env.MISA_INSTANCE,
-  },
+ },
   pool: { max: 5, min: 0, idleTimeoutMillis: 30000 },
 };
 

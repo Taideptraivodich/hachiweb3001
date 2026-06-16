@@ -73,3 +73,43 @@ body.dark .ant-drawer-content {
 body.dark .ant-card-body {
   background: #1f1f1f !important;
 }
+
+/* ── Responsive mobile ── */
+@media (max-width: 767px) {
+  /* Header */
+  .ant-layout-header { padding: 0 8px !important; }
+
+  /* Content padding nhỏ hơn */
+  .ant-layout-content { padding: 8px !important; }
+
+  /* Form inline → xuống dòng */
+  .ant-form-inline .ant-form-item { margin-bottom: 8px !important; width: 100%; }
+  .ant-form-inline .ant-form-item .ant-form-item-control { flex: 1; }
+  .ant-form-inline .ant-input,
+  .ant-form-inline .ant-picker,
+  .ant-form-inline .ant-select { width: 100% !important; }
+
+  /* Drawer toa hàng full width */
+  .ant-drawer-content-wrapper { width: 100vw !important; }
+
+  /* Modal full width */
+  .ant-modal { max-width: 100vw !important; margin: 0 !important; top: 0 !important; }
+  .ant-modal-content { border-radius: 0 !important; }
+
+  /* Table: text nhỏ hơn */
+  .ant-table-cell { font-size: 12px !important; padding: 6px 8px !important; }
+
+  /* Các card */
+  .ant-card-body { padding: 10px !important; }
+
+  /* Ẩn cột ít quan trọng trên mobile */
+  .hide-mobile { display: none !important; }
+
+  /* Toolbar wrap */
+  .toolbar-wrap { flex-wrap: wrap; gap: 6px !important; }
+  .toolbar-wrap > * { flex-shrink: 0; }
+
+  /* Stats cards công nợ / tồn kho */
+  .ant-statistic-title { font-size: 12px !important; }
+  .ant-statistic-content { font-size: 16px !important; }
+}

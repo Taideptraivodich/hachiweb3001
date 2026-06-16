@@ -185,6 +185,7 @@ export default function OrderList() {
         rowKey="id"
         loading={loading}
         size="small"
+        scroll={{ x: 600 }}
         pagination={{
           current: page, total, pageSize: 20,
           onChange: setPage,

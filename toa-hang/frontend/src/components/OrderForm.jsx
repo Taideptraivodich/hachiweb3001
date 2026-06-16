@@ -440,11 +440,13 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
     },
   ];
 
+  const isMobile = window.innerWidth < 768;
+
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
       {/* Thông tin toa */}
       <Card size="small" style={{ marginBottom: 12 }}>
-        <Form form={form} layout="inline" size="middle">
+        <Form form={form} layout={isMobile ? 'vertical' : 'inline'} size="middle">
           <Form.Item name="ma_toa" label="Mã toa"
             rules={[{ required: true, message: 'Cần mã toa' }]}>
             <Input style={{ width: 120 }} />

@@ -4,13 +4,15 @@ const cors     = require('cors');
 const path     = require('path');
 
 const { setupDatabase }     = require('./src/setup');
-const { startSyncScheduler, syncProducts, syncCustomers } = require('./src/sync');
+const { startSyncScheduler, syncProducts, syncCustomers, syncTonkho, syncCongno } = require('./src/sync');
 const productsRouter = require('./src/routes/products');
 const ordersRouter   = require('./src/routes/orders');
 const reportsRouter  = require('./src/routes/reports');
 const historyRouter  = require('./src/routes/history');
 const congnoRouter   = require('./src/routes/congno');
 const tonkhoRouter   = require('./src/routes/tonkho');
+
+const syncStatusRouter = require('./src/routes/sync_status');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -26,6 +28,7 @@ app.use('/api/reports',   reportsRouter);
 app.use('/api/history',   historyRouter);
 app.use('/api/congno',    congnoRouter);
 app.use('/api/tonkho',   tonkhoRouter);
+app.use('/api/sync',     syncStatusRouter);
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
@@ -47,6 +50,8 @@ async function start() {
     console.log('🔄 Sync dữ liệu lần đầu...');
     await syncProducts();
     await syncCustomers();
+    await syncTonkho();
+    await syncCongno();
 
     // Bắt đầu scheduler
     startSyncScheduler();

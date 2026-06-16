@@ -56,6 +56,54 @@ async function setupDatabase() {
     `CREATE INDEX IF NOT EXISTS idx_detail_ma_hang    ON order_details(ma_hang)`,
     `CREATE INDEX IF NOT EXISTS idx_product_ten       ON product_cache(ten_hang)`,
     `CREATE INDEX IF NOT EXISTS idx_customer_ten      ON customer_cache(ten_kh)`,
+
+    // ── Cache tồn kho tổng hợp ──────────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS tonkho_cache (
+      ma_hang     TEXT NOT NULL,
+      ten_hang    TEXT DEFAULT '',
+      kho         TEXT DEFAULT '',
+      dvt         TEXT DEFAULT '',
+      don_gia     REAL DEFAULT 0,
+      dau_ky_sl   REAL DEFAULT 0,
+      dau_ky_gt   REAL DEFAULT 0,
+      nhap_sl     REAL DEFAULT 0,
+      nhap_gt     REAL DEFAULT 0,
+      xuat_sl     REAL DEFAULT 0,
+      xuat_gt     REAL DEFAULT 0,
+      cuoi_ky_sl  REAL DEFAULT 0,
+      cuoi_ky_gt  REAL DEFAULT 0,
+      tu_ngay     TEXT NOT NULL,
+      den_ngay    TEXT NOT NULL,
+      updated_at  TEXT DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (ma_hang, tu_ngay, den_ngay)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_tonkho_cache_ngay ON tonkho_cache(tu_ngay, den_ngay)`,
+
+    // ── Cache công nợ tổng hợp ──────────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS congno_cache (
+      ma_kh       TEXT NOT NULL,
+      ten_kh      TEXT DEFAULT '',
+      dau_ky_no   REAL DEFAULT 0,
+      dau_ky_co   REAL DEFAULT 0,
+      ps_no       REAL DEFAULT 0,
+      ps_co       REAL DEFAULT 0,
+      so_phieu    INTEGER DEFAULT 0,
+      cuoi_ky_no  REAL DEFAULT 0,
+      cuoi_ky_co  REAL DEFAULT 0,
+      du_no_net   REAL DEFAULT 0,
+      tu_ngay     TEXT NOT NULL,
+      den_ngay    TEXT NOT NULL,
+      updated_at  TEXT DEFAULT (datetime('now','localtime')),
+      PRIMARY KEY (ma_kh, tu_ngay, den_ngay)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_congno_cache_ngay ON congno_cache(tu_ngay, den_ngay)`,
+
+    // ── Meta: lưu thời điểm sync cuối ──────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS sync_meta (
+      key        TEXT PRIMARY KEY,
+      value      TEXT,
+      updated_at TEXT DEFAULT (datetime('now','localtime'))
+    )`,
   ];
   for (const sql of tables) db.run(sql);
   saveDb(db);

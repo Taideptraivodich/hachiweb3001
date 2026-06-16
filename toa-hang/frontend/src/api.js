@@ -9,6 +9,8 @@ export const syncProducts = () =>
   api.post('/products/sync').then(r => r.data);
 export const syncCustomers = () =>
   api.post('/products/customers/sync').then(r => r.data);
+export const syncAll = () =>
+  api.post('/sync/manual').then(r => r.data);
 // Orders
 export const getOrders = (params) =>
   api.get('/orders', { params }).then(r => r.data);
