@@ -126,19 +126,20 @@ async function syncTonkho() {
       WITH dau_ky AS (
         SELECT
           il.InventoryItemCode,
+          il.StockName,
           SUM(il.InwardQuantity)  - SUM(il.OutwardQuantity) AS sl,
           SUM(il.InwardAmount)    - SUM(il.OutwardAmount)   AS gt
         FROM InventoryLedger il
         WHERE il.InventoryItemCode IS NOT NULL
           AND il.InventoryItemCode <> ''
           AND il.PostedDate < @tu_ngay
-        GROUP BY il.InventoryItemCode
+        GROUP BY il.InventoryItemCode, il.StockName
       ),
       trong_ky AS (
         SELECT
           il.InventoryItemCode,
+          il.StockName,
           MAX(il.InventoryItemName)  AS ten_hang,
-          MAX(il.StockName)          AS kho,
           MAX(u.UnitName)            AS dvt,
           SUM(il.InwardQuantity)     AS nhap_sl,
           SUM(il.InwardAmount)       AS nhap_gt,
@@ -149,15 +150,16 @@ async function syncTonkho() {
         WHERE il.InventoryItemCode IS NOT NULL
           AND il.InventoryItemCode <> ''
           AND il.PostedDate BETWEEN @tu_ngay AND @den_ngay
-        GROUP BY il.InventoryItemCode
+        GROUP BY il.InventoryItemCode, il.StockName
       ),
       all_hang AS (
-        SELECT InventoryItemCode FROM dau_ky WHERE sl <> 0
+        SELECT InventoryItemCode, StockName FROM dau_ky WHERE sl <> 0
         UNION
-        SELECT InventoryItemCode FROM trong_ky
+        SELECT InventoryItemCode, StockName FROM trong_ky
       )
       SELECT
         a.InventoryItemCode AS ma_hang,
+        a.StockName         AS kho,
         (SELECT TOP 1 UnitPrice FROM InventoryLedger
          WHERE InventoryItemCode = a.InventoryItemCode
            AND InwardQuantity > 0 AND UnitPrice > 0
@@ -165,7 +167,7 @@ async function syncTonkho() {
         ISNULL(tk.ten_hang,
           (SELECT TOP 1 InventoryItemName FROM InventoryLedger
            WHERE InventoryItemCode = a.InventoryItemCode)) AS ten_hang,
-        tk.kho, tk.dvt,
+        tk.dvt,
         ISNULL(dk.sl, 0) AS dau_ky_sl,
         ISNULL(dk.gt, 0) AS dau_ky_gt,
         ISNULL(tk.nhap_sl, 0) AS nhap_sl,
@@ -173,9 +175,9 @@ async function syncTonkho() {
         ISNULL(tk.xuat_sl, 0) AS xuat_sl,
         ISNULL(tk.xuat_gt, 0) AS xuat_gt
       FROM all_hang a
-      LEFT JOIN dau_ky  dk ON dk.InventoryItemCode = a.InventoryItemCode
-      LEFT JOIN trong_ky tk ON tk.InventoryItemCode = a.InventoryItemCode
-      ORDER BY ten_hang
+      LEFT JOIN dau_ky  dk ON dk.InventoryItemCode = a.InventoryItemCode AND dk.StockName = a.StockName
+      LEFT JOIN trong_ky tk ON tk.InventoryItemCode = a.InventoryItemCode AND tk.StockName = a.StockName
+      ORDER BY ten_hang, a.StockName
     `);
 
     const db  = await getDb();
@@ -192,8 +194,8 @@ async function syncTonkho() {
            dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt, xuat_sl, xuat_gt,
            cuoi_ky_sl, cuoi_ky_gt, tu_ngay, den_ngay, updated_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(ma_hang, tu_ngay, den_ngay) DO UPDATE SET
-          ten_hang=excluded.ten_hang, kho=excluded.kho, dvt=excluded.dvt,
+        ON CONFLICT(ma_hang, kho, tu_ngay, den_ngay) DO UPDATE SET
+          ten_hang=excluded.ten_hang, dvt=excluded.dvt,
           don_gia=excluded.don_gia,
           dau_ky_sl=excluded.dau_ky_sl, dau_ky_gt=excluded.dau_ky_gt,
           nhap_sl=excluded.nhap_sl,     nhap_gt=excluded.nhap_gt,
@@ -479,7 +481,7 @@ async function syncTonkhoChiTiet() {
             il.PostedDate                 AS ngay_hach_toan,
             il.RefDate                    AS ngay_ct,
             il.RefNo                      AS so_ct,
-            il.Description                AS dien_giai,
+            il.JournalMemo                AS dien_giai,
             il.UnitPrice                  AS don_gia,
             il.InwardQuantity             AS nhap_sl,
             il.InwardAmount               AS nhap_gt,
@@ -492,7 +494,7 @@ async function syncTonkhoChiTiet() {
             AND il.PostedDate BETWEEN @tu_ngay AND @den_ngay
             AND (il.InwardQuantity <> 0 OR il.OutwardQuantity <> 0)
           GROUP BY
-            il.PostedDate, il.RefDate, il.RefNo, il.Description,
+            il.PostedDate, il.RefDate, il.RefNo, il.JournalMemo,
             il.UnitPrice, il.InwardQuantity, il.InwardAmount,
             il.OutwardQuantity, il.OutwardAmount, il.StockName
           ORDER BY il.PostedDate ASC, il.RefNo ASC

@@ -75,7 +75,7 @@ async function setupDatabase() {
       tu_ngay     TEXT NOT NULL,
       den_ngay    TEXT NOT NULL,
       updated_at  TEXT DEFAULT (datetime('now','localtime')),
-      PRIMARY KEY (ma_hang, tu_ngay, den_ngay)
+      PRIMARY KEY (ma_hang, kho, tu_ngay, den_ngay)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_tonkho_cache_ngay ON tonkho_cache(tu_ngay, den_ngay)`,
 

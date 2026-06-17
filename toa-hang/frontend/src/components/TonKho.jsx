@@ -11,6 +11,8 @@ import {
 import axios from 'axios';
 import dayjs from 'dayjs';
 import 'dayjs/locale/vi';
+import quarterOfYear from 'dayjs/plugin/quarterOfYear';
+dayjs.extend(quarterOfYear);
 import { formatMoney } from '../utils';
 
 dayjs.locale('vi');
@@ -84,11 +86,11 @@ const tdS = (C, align = 'right', extra = {}) => ({
 });
 
 // ─── Bảng tổng hợp ───────────────────────────────────────────────────────────
-function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, filters }) {
+function TongHopTableInner({ data, allData, danhSachKho, loading, onSelect, onFilter, filters }) {
   const ROW_H  = 40;
   const OVERSCAN = 5;
 
-  const totals = useMemo(() => data.reduce((acc, r) => ({
+  const totals = useMemo(() => (allData || data).reduce((acc, r) => ({
     dau_ky_sl:  acc.dau_ky_sl  + Number(r.dau_ky_sl  || 0),
     nhap_sl:    acc.nhap_sl    + Number(r.nhap_sl    || 0),
     xuat_sl:    acc.xuat_sl    + Number(r.xuat_sl    || 0),
@@ -96,12 +98,14 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
     nhap_gt:    acc.nhap_gt    + Number(r.nhap_gt    || 0),
     xuat_gt:    acc.xuat_gt    + Number(r.xuat_gt    || 0),
     cuoi_ky_gt: acc.cuoi_ky_gt + Number(r.cuoi_ky_gt || 0),
-  }), { dau_ky_sl:0, nhap_sl:0, xuat_sl:0, cuoi_ky_sl:0, nhap_gt:0, xuat_gt:0, cuoi_ky_gt:0 }), [data]);
+  }), { dau_ky_sl:0, nhap_sl:0, xuat_sl:0, cuoi_ky_sl:0, nhap_gt:0, xuat_gt:0, cuoi_ky_gt:0 }), [allData, data]);
 
   const [scrollTop, setScrollTop] = React.useState(0);
   const [viewH, setViewH]         = React.useState(600);
 
+  const scrollElRef = React.useRef(null);
   const scrollRef = React.useCallback(el => {
+    scrollElRef.current = el;
     if (!el) return;
     setViewH(el.clientHeight || window.innerHeight - 380);
     const onScroll = () => setScrollTop(el.scrollTop);
@@ -110,7 +114,10 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
     ro.observe(el);
   }, []);
 
-  React.useEffect(() => { setScrollTop(0); }, [data]);
+  React.useEffect(() => {
+    setScrollTop(0);
+    if (scrollElRef.current) scrollElRef.current.scrollTop = 0;
+  }, [data, allData]);
 
   const [sort, setSort] = React.useState({ key: 'ten_hang', dir: 1 });
   const sortedData = React.useMemo(() => {
@@ -132,11 +139,12 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
     ...thS(C, align), cursor:'pointer', position:'sticky', top:0, zIndex:2,
   });
 
-  const startIdx    = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
-  const endIdx      = Math.min(sortedData.length, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN);
+  const totalH       = sortedData.length * ROW_H;
+  const safeScrollTop = scrollTop > totalH ? 0 : scrollTop;
+  const startIdx    = Math.max(0, Math.floor(safeScrollTop / ROW_H) - OVERSCAN);
+  const endIdx      = Math.min(sortedData.length, Math.ceil((safeScrollTop + viewH) / ROW_H) + OVERSCAN + 2);
   const visibleRows = sortedData.slice(startIdx, endIdx);
-  const paddingTop    = startIdx * ROW_H;
-  const paddingBottom = (sortedData.length - endIdx) * ROW_H;
+  const paddingTop  = startIdx * ROW_H;
 
   return (
     <div>
@@ -192,7 +200,7 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
           ? <Empty description="Không có dữ liệu tồn kho trong kỳ" style={{ padding:'40px 0' }} />
           : (
             <div style={{ border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden' }}>
-              <div ref={scrollRef} style={{ overflowY:'auto', overflowX:'auto', maxHeight:'calc(100vh - 370px)' }}>
+              <div ref={scrollRef} style={{ overflowY:'auto', overflowX:'auto', maxHeight:'calc(100vh - 370px)', overscrollBehavior:'none' }}>
                 <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed', minWidth:1050 }}>
                   <colgroup>
                     <col style={{width:130}}/><col style={{minWidth:220}}/><col style={{width:52}}/>
@@ -275,7 +283,7 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
                         </tr>
                       );
                     })}
-                    {paddingBottom > 0 && <tr><td colSpan={11} style={{ height:paddingBottom, padding:0, border:'none' }} /></tr>}
+
                   </tbody>
                   <tfoot>
                     <tr style={{ background:C.headerBg, fontWeight:700 }}>
@@ -304,6 +312,7 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
 
 const TongHopTable = React.memo(TongHopTableInner, (prev, next) =>
   prev.data === next.data &&
+  prev.allData === next.allData &&
   prev.loading === next.loading &&
   prev.filters === next.filters &&
   prev.danhSachKho === next.danhSachKho
@@ -563,15 +572,19 @@ export default function TonKho() {
     }
   }
 
+  const khoFilteredData = useMemo(() => {
+    if (!filters.kho) return rawData;
+    return rawData.filter(r => r.kho === filters.kho);
+  }, [rawData, filters.kho]);
+
   const filteredData = useMemo(() => {
-    let d = rawData;
+    let d = khoFilteredData;
     if (filters.q) {
       const q = filters.q.toLowerCase();
       d = d.filter(r => (r.ma_hang||'').toLowerCase().includes(q) || (r.ten_hang||'').toLowerCase().includes(q));
     }
-    if (filters.kho) d = d.filter(r => r.kho === filters.kho);
     return d;
-  }, [rawData, filters]);
+  }, [khoFilteredData, filters.q]);
 
   return (
     <div style={{ minHeight:'100%', color:C.text }}>
@@ -586,7 +599,7 @@ export default function TonKho() {
           <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:20, flexWrap:'wrap' }}>
             <RangePicker
               value={range}
-              onChange={v => v && setRange(v)}
+              onChange={(v, s) => { if (v?.[0] && v?.[1]) { setRange(v); setTimeout(loadData, 0); } else if (v) { setRange(v); } }}
               format="DD/MM/YYYY"
               presets={[
                 { label:'Tháng này',   value:[dayjs().startOf('month'), dayjs()] },
@@ -595,7 +608,7 @@ export default function TonKho() {
                 { label:'Năm nay',     value:[dayjs().startOf('year'), dayjs()] },
               ]}
             />
-            <Button type="primary" icon={<SearchOutlined />} onClick={loadData} loading={loading}>
+            <Button id="btn-xem-tonkho" type="primary" icon={<SearchOutlined />} onClick={loadData} loading={loading}>
               Xem tồn kho
             </Button>
             {loaded && <Button icon={<ReloadOutlined />} onClick={loadData}>Làm mới</Button>}
@@ -616,6 +629,7 @@ export default function TonKho() {
           {(loaded || loading) && (
             <TongHopTable
               data={filteredData}
+              allData={khoFilteredData}
               danhSachKho={danhSachKho}
               loading={loading}
               onSelect={handleSelect}

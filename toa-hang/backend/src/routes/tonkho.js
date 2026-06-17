@@ -55,8 +55,8 @@ router.get('/tong-hop', async (req, res) => {
         SELECT
           il.InventoryItemCode                                              AS ma_hang,
           MAX(il.InventoryItemName)                                         AS ten_hang,
-          MAX(il.StockName)                                                 AS kho,
-          MAX(il.Unit)                                                      AS dvt,
+          il.StockName                                                      AS kho,
+          MAX(u.UnitName)                                                   AS dvt,
           ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
             THEN il.InwardQuantity  ELSE 0 END), 0)
           - ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
@@ -74,9 +74,10 @@ router.get('/tong-hop', async (req, res) => {
           ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
             THEN il.OutwardAmount   ELSE 0 END), 0)                        AS xuat_gt
         FROM InventoryLedger il
+        LEFT JOIN Unit u ON u.UnitID = il.UnitID
         WHERE il.InventoryItemCode IS NOT NULL
           AND il.InventoryItemCode <> ''
-        GROUP BY il.InventoryItemCode
+        GROUP BY il.InventoryItemCode, il.StockName
         HAVING
           (
             ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
@@ -84,7 +85,7 @@ router.get('/tong-hop', async (req, res) => {
             OR ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
               THEN il.InwardQuantity + il.OutwardQuantity ELSE 0 END), 0) > 0
           )
-        ORDER BY MAX(il.InventoryItemName)
+        ORDER BY MAX(il.InventoryItemName), il.StockName
       `);
 
       let data = result.recordset.map(r => ({
@@ -209,7 +210,7 @@ router.get('/chi-tiet', async (req, res) => {
           il.PostedDate                 AS ngay_hach_toan,
           il.RefDate                    AS ngay_ct,
           il.RefNo                      AS so_ct,
-          il.Description                AS dien_giai,
+          il.JournalMemo                AS dien_giai,
           il.UnitPrice                  AS don_gia,
           il.InwardQuantity             AS nhap_sl,
           il.InwardAmount               AS nhap_gt,
@@ -222,7 +223,7 @@ router.get('/chi-tiet', async (req, res) => {
           AND il.PostedDate BETWEEN @tu_ngay AND @den_ngay
           AND (il.InwardQuantity <> 0 OR il.OutwardQuantity <> 0)
         GROUP BY
-          il.PostedDate, il.RefDate, il.RefNo, il.Description,
+          il.PostedDate, il.RefDate, il.RefNo, il.JournalMemo,
           il.UnitPrice, il.InwardQuantity, il.InwardAmount,
           il.OutwardQuantity, il.OutwardAmount, il.StockName
         ORDER BY il.PostedDate ASC, il.RefNo ASC
@@ -352,8 +353,8 @@ async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
          nhap_sl, nhap_gt, xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt,
          tu_ngay, den_ngay, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      ON CONFLICT(ma_hang, tu_ngay, den_ngay) DO UPDATE SET
-        ten_hang=excluded.ten_hang, kho=excluded.kho, dvt=excluded.dvt,
+      ON CONFLICT(ma_hang, kho, tu_ngay, den_ngay) DO UPDATE SET
+        ten_hang=excluded.ten_hang, dvt=excluded.dvt,
         dau_ky_sl=excluded.dau_ky_sl, dau_ky_gt=excluded.dau_ky_gt,
         nhap_sl=excluded.nhap_sl,     nhap_gt=excluded.nhap_gt,
         xuat_sl=excluded.xuat_sl,     xuat_gt=excluded.xuat_gt,
