@@ -86,11 +86,16 @@ const tdS = (C, align = 'right', extra = {}) => ({
 });
 
 // ─── Bảng tổng hợp ───────────────────────────────────────────────────────────
-function TongHopTableInner({ data, allData, danhSachKho, loading, onSelect, onFilter, filters }) {
+function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, filters }) {
   const ROW_H  = 40;
   const OVERSCAN = 5;
 
-  const totals = useMemo(() => (allData || data).reduce((acc, r) => ({
+  // ROOT CAUSE (Lỗi 3 - "panel tổng không đổi theo search"): trước đây totals
+  // luôn tính từ `allData` (= dữ liệu đã lọc theo KHO nhưng CHƯA lọc theo từ khoá
+  // tìm kiếm), nên khi gõ search, bảng đổi nhưng panel tổng phía trên im re.
+  // Sửa: tính totals từ `data` (đã lọc đủ kho + search) để panel tổng luôn khớp
+  // với số liệu đang hiển thị trong bảng.
+  const totals = useMemo(() => data.reduce((acc, r) => ({
     dau_ky_sl:  acc.dau_ky_sl  + Number(r.dau_ky_sl  || 0),
     nhap_sl:    acc.nhap_sl    + Number(r.nhap_sl    || 0),
     xuat_sl:    acc.xuat_sl    + Number(r.xuat_sl    || 0),
@@ -98,13 +103,15 @@ function TongHopTableInner({ data, allData, danhSachKho, loading, onSelect, onFi
     nhap_gt:    acc.nhap_gt    + Number(r.nhap_gt    || 0),
     xuat_gt:    acc.xuat_gt    + Number(r.xuat_gt    || 0),
     cuoi_ky_gt: acc.cuoi_ky_gt + Number(r.cuoi_ky_gt || 0),
-  }), { dau_ky_sl:0, nhap_sl:0, xuat_sl:0, cuoi_ky_sl:0, nhap_gt:0, xuat_gt:0, cuoi_ky_gt:0 }), [allData, data]);
+  }), { dau_ky_sl:0, nhap_sl:0, xuat_sl:0, cuoi_ky_sl:0, nhap_gt:0, xuat_gt:0, cuoi_ky_gt:0 }), [data]);
 
   const [scrollTop, setScrollTop] = React.useState(0);
   const [viewH, setViewH]         = React.useState(600);
 
   const scrollElRef = React.useRef(null);
+  const cleanupRef  = React.useRef(null);
   const scrollRef = React.useCallback(el => {
+    if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
     scrollElRef.current = el;
     if (!el) return;
     setViewH(el.clientHeight || window.innerHeight - 380);
@@ -112,12 +119,25 @@ function TongHopTableInner({ data, allData, danhSachKho, loading, onSelect, onFi
     el.addEventListener('scroll', onScroll, { passive: true });
     const ro = new ResizeObserver(() => setViewH(el.clientHeight));
     ro.observe(el);
+    cleanupRef.current = () => { el.removeEventListener('scroll', onScroll); ro.disconnect(); };
   }, []);
 
-  React.useEffect(() => {
+  // ROOT CAUSE (Lỗi 1/3 - "vùng đen", "bảng vẫn render dữ liệu cũ" khi search/filter):
+  // trước đây scrollTop chỉ được reset về 0 trong useEffect, useEffect chạy SAU
+  // khi React đã render xong 1 lần với scrollTop CŨ + data MỚI → có 1 khung hình
+  // virtual-scroll tính sai startIdx/endIdx (lệch dữ liệu) trước khi tự sửa lại.
+  // Sửa: phát hiện data đổi NGAY trong lúc render (mẫu "adjust state while
+  // rendering" của React) để scrollTop=0 áp dụng từ khung hình đầu tiên, không
+  // còn khung hình trung gian hiển thị sai.
+  const [prevData, setPrevData] = React.useState(data);
+  if (data !== prevData) {
+    setPrevData(data);
     setScrollTop(0);
+  }
+
+  React.useEffect(() => {
     if (scrollElRef.current) scrollElRef.current.scrollTop = 0;
-  }, [data, allData]);
+  }, [data]);
 
   const [sort, setSort] = React.useState({ key: 'ten_hang', dir: 1 });
   const sortedData = React.useMemo(() => {
@@ -144,7 +164,8 @@ function TongHopTableInner({ data, allData, danhSachKho, loading, onSelect, onFi
   const startIdx    = Math.max(0, Math.floor(safeScrollTop / ROW_H) - OVERSCAN);
   const endIdx      = Math.min(sortedData.length, Math.ceil((safeScrollTop + viewH) / ROW_H) + OVERSCAN + 2);
   const visibleRows = sortedData.slice(startIdx, endIdx);
-  const paddingTop  = startIdx * ROW_H;
+  const paddingTop    = startIdx * ROW_H;
+  const paddingBottom = (sortedData.length - endIdx) * ROW_H;
 
   return (
     <div>
@@ -229,7 +250,7 @@ function TongHopTableInner({ data, allData, danhSachKho, loading, onSelect, onFi
                       const i = startIdx + _i;
                       const isCanhBao = Number(r.cuoi_ky_sl) <= 0;
                       return (
-                        <tr key={r.ma_hang}
+                        <tr key={`${r.ma_hang}__${r.kho || ''}`}
                           style={{ height:ROW_H, background:i%2===0?C.rowOdd:C.rowEven, cursor:'pointer' }}
                           onClick={() => onSelect(r)}
                           onMouseEnter={e => e.currentTarget.style.background = C.rowHover}
@@ -283,6 +304,7 @@ function TongHopTableInner({ data, allData, danhSachKho, loading, onSelect, onFi
                         </tr>
                       );
                     })}
+                    {paddingBottom > 0 && <tr><td colSpan={11} style={{ height:paddingBottom, padding:0, border:'none' }} /></tr>}
 
                   </tbody>
                   <tfoot>
@@ -312,7 +334,6 @@ function TongHopTableInner({ data, allData, danhSachKho, loading, onSelect, onFi
 
 const TongHopTable = React.memo(TongHopTableInner, (prev, next) =>
   prev.data === next.data &&
-  prev.allData === next.allData &&
   prev.loading === next.loading &&
   prev.filters === next.filters &&
   prev.danhSachKho === next.danhSachKho
@@ -629,7 +650,6 @@ export default function TonKho() {
           {(loaded || loading) && (
             <TongHopTable
               data={filteredData}
-              allData={khoFilteredData}
               danhSachKho={danhSachKho}
               loading={loading}
               onSelect={handleSelect}
