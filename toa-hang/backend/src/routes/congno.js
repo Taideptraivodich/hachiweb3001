@@ -190,6 +190,9 @@ router.get('/chi-tiet', async (req, res) => {
         return { ...r, so_du: soDu };
       });
 
+      // Lưu cache chi tiết
+      _updateCongnoChiTietCache(ma_kh, fromDate, toDate, duDauKyNet, dauKy.no, dauKy.co, rows).catch(() => {});
+
       return res.json({
         success: true, dau_ky_net: duDauKyNet,
         dau_ky_no: dauKy.no, dau_ky_co: dauKy.co,
@@ -201,13 +204,83 @@ router.get('/chi-tiet', async (req, res) => {
     }
   }
 
-  // Fallback: chi tiết không cache — thông báo offline
-  const lastSync = await getLastSync('last_sync_congno');
-  return res.status(503).json({
-    success: false,
-    error: `MISA đang offline. Chi tiết công nợ không có sẵn trong cache. Lần sync cuối: ${lastSync || 'chưa có'}`,
-    from_cache: true,
-  });
+  // Fallback cache chi tiết
+  console.log('⚠️  MISA offline — đọc công nợ chi tiết từ cache SQLite');
+  try {
+    const db = await getDb();
+    // Lấy header (dau_ky) từ dòng đầu tiên của cache
+    const header = dbGet(db, `
+      SELECT dau_ky_net, dau_ky_no, dau_ky_co, tu_ngay, den_ngay, updated_at
+      FROM congno_chitiet_cache
+      WHERE ma_kh = ? AND tu_ngay = ? AND den_ngay = ?
+      LIMIT 1
+    `, [ma_kh, fromDate, toDate]);
+
+    let rows = [];
+    let usedFromDate = fromDate, usedToDate = toDate;
+    let cachedAt = null;
+
+    if (header) {
+      rows = dbQuery(db, `
+        SELECT ngay_ct, ngay_hd, so_ct, dien_giai, ps_no, ps_co, tk_du, so_du
+        FROM congno_chitiet_cache
+        WHERE ma_kh = ? AND tu_ngay = ? AND den_ngay = ?
+        ORDER BY id ASC
+      `, [ma_kh, fromDate, toDate]);
+      cachedAt = header.updated_at;
+    } else {
+      // Lấy kỳ gần nhất của mã khách hàng này
+      const nearest = dbGet(db, `
+        SELECT tu_ngay, den_ngay, dau_ky_net, dau_ky_no, dau_ky_co, updated_at
+        FROM congno_chitiet_cache
+        WHERE ma_kh = ?
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `, [ma_kh]);
+
+      if (nearest) {
+        usedFromDate = nearest.tu_ngay;
+        usedToDate   = nearest.den_ngay;
+        cachedAt     = nearest.updated_at;
+        rows = dbQuery(db, `
+          SELECT ngay_ct, ngay_hd, so_ct, dien_giai, ps_no, ps_co, tk_du, so_du
+          FROM congno_chitiet_cache
+          WHERE ma_kh = ? AND tu_ngay = ? AND den_ngay = ?
+          ORDER BY id ASC
+        `, [ma_kh, usedFromDate, usedToDate]);
+      }
+    }
+
+    db.close();
+
+    if (!header && rows.length === 0) {
+      const lastSync = await getLastSync('last_sync_congno');
+      return res.status(503).json({
+        success: false,
+        error: `MISA đang offline và chưa có cache cho khách hàng này. Lần sync cuối: ${lastSync || 'chưa có'}`,
+        from_cache: true,
+      });
+    }
+
+    const h = header || { dau_ky_net: 0, dau_ky_no: 0, dau_ky_co: 0 };
+    return res.json({
+      success: true,
+      dau_ky_net: h.dau_ky_net,
+      dau_ky_no:  h.dau_ky_no,
+      dau_ky_co:  h.dau_ky_co,
+      data: rows,
+      from_cache: true,
+      cache_note: `⚠️ Dữ liệu offline — lần sync cuối: ${cachedAt || 'chưa có'}${usedFromDate !== fromDate ? ` (kỳ ${usedFromDate} → ${usedToDate})` : ''}`,
+    });
+  } catch (cacheErr) {
+    console.error('❌ Đọc cache công nợ chi tiết lỗi:', cacheErr.message);
+    const lastSync = await getLastSync('last_sync_congno');
+    return res.status(503).json({
+      success: false,
+      error: `MISA đang offline và không đọc được cache. Lần sync cuối: ${lastSync || 'chưa có'}`,
+      from_cache: true,
+    });
+  }
 });
 
 // ─── Helper: cập nhật cache congno ───────────────────────────────────────────
@@ -240,6 +313,40 @@ async function _updateCongnoCache(data, tu_ngay, den_ngay) {
     INSERT INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)
     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
   `, ['last_sync_congno', now, now]);
+  saveDb(db);
+}
+
+// ─── Helper: cập nhật cache công nợ chi tiết ─────────────────────────────────
+async function _updateCongnoChiTietCache(ma_kh, tu_ngay, den_ngay, dau_ky_net, dau_ky_no, dau_ky_co, rows) {
+  const db  = await getDb();
+  const now = new Date().toLocaleString('vi-VN');
+
+  // Xóa cache cũ của cùng kỳ + khách hàng
+  db.run(`DELETE FROM congno_chitiet_cache WHERE ma_kh = ? AND tu_ngay = ? AND den_ngay = ?`,
+    [ma_kh, tu_ngay, den_ngay]);
+
+  for (const r of rows) {
+    db.run(`
+      INSERT INTO congno_chitiet_cache
+        (ma_kh, tu_ngay, den_ngay, dau_ky_net, dau_ky_no, dau_ky_co,
+         ngay_ct, ngay_hd, so_ct, dien_giai, ps_no, ps_co, tk_du, so_du, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `, [
+      ma_kh, tu_ngay, den_ngay, dau_ky_net, dau_ky_no, dau_ky_co,
+      r.ngay_ct ? new Date(r.ngay_ct).toISOString().slice(0, 10) : null,
+      r.ngay_hd ? new Date(r.ngay_hd).toISOString().slice(0, 10) : null,
+      r.so_ct || '', r.dien_giai || '',
+      r.ps_no || 0, r.ps_co || 0,
+      r.tk_du || '', r.so_du || 0,
+      now,
+    ]);
+  }
+
+  db.run(`
+    INSERT INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+  `, ['last_sync_congno_chitiet', now, now]);
+
   saveDb(db);
 }
 

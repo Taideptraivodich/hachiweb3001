@@ -305,6 +305,258 @@ async function syncCongno() {
   }
 }
 
+// ─── Sync chi tiết công nợ (6 tháng gần nhất, theo từng khách hàng) ──────────
+async function syncCongnoChiTiet() {
+  console.log('🔄 Sync công nợ chi tiết (6 tháng gần nhất)...');
+  try {
+    const misa = await getMisaPool();
+    const today     = new Date().toISOString().slice(0, 10);
+    const sixMonths = new Date();
+    sixMonths.setMonth(sixMonths.getMonth() - 6);
+    const fromDate  = sixMonths.toISOString().slice(0, 10);
+
+    // Lấy danh sách khách hàng có phát sinh trong 6 tháng gần nhất
+    const listReq = misa.request();
+    listReq.input('tu_ngay', sql.Date, new Date(fromDate));
+    const listResult = await listReq.query(`
+      SELECT DISTINCT aol.AccountObjectCode AS ma_kh
+      FROM AccountObjectLedger aol
+      WHERE aol.AccountNumber LIKE '131%'
+        AND aol.AccountObjectCode IS NOT NULL
+        AND aol.AccountObjectCode <> ''
+        AND aol.PostedDate >= @tu_ngay
+    `);
+
+    const maKhList = listResult.recordset.map(r => r.ma_kh).filter(Boolean);
+    console.log(`   → ${maKhList.length} khách hàng có giao dịch trong 6 tháng`);
+
+    const db  = await getDb();
+    const now = new Date().toLocaleString('vi-VN');
+    let count = 0;
+
+    for (const ma_kh of maKhList) {
+      try {
+        const req1 = misa.request();
+        req1.input('ma_kh',    sql.NVarChar, ma_kh);
+        req1.input('tu_ngay',  sql.Date, new Date(fromDate));
+        req1.input('den_ngay', sql.Date, new Date(today));
+
+        const duDauKy = await req1.query(`
+          SELECT
+            ISNULL(SUM(DebitAmountOC), 0)  AS no,
+            ISNULL(SUM(CreditAmountOC), 0) AS co
+          FROM AccountObjectLedger
+          WHERE AccountNumber LIKE '131%'
+            AND AccountObjectCode = @ma_kh
+            AND PostedDate < @tu_ngay
+        `);
+
+        const req2 = misa.request();
+        req2.input('ma_kh',    sql.NVarChar, ma_kh);
+        req2.input('tu_ngay',  sql.Date, new Date(fromDate));
+        req2.input('den_ngay', sql.Date, new Date(today));
+
+        const chiTiet = await req2.query(`
+          SELECT
+            aol.PostedDate                   AS ngay_ct,
+            aol.RefDate                      AS ngay_hd,
+            aol.RefNo                        AS so_ct,
+            aol.Description                  AS dien_giai,
+            aol.DebitAmountOC                AS ps_no,
+            aol.CreditAmountOC               AS ps_co,
+            aol.CorrespondingAccountNumber   AS tk_du
+          FROM AccountObjectLedger aol
+          WHERE aol.AccountNumber LIKE '131%'
+            AND aol.AccountObjectCode = @ma_kh
+            AND aol.PostedDate BETWEEN @tu_ngay AND @den_ngay
+            AND (aol.DebitAmountOC <> 0 OR aol.CreditAmountOC <> 0)
+            AND aol.CorrespondingAccountNumber NOT LIKE '5211%'
+            AND aol.CorrespondingAccountNumber NOT LIKE '5212%'
+          ORDER BY aol.PostedDate ASC, aol.RefNo ASC, aol.SortOrder ASC, aol.DetailPostOrder ASC
+        `);
+
+        const dauKy = {
+          no: Number(duDauKy.recordset[0]?.no || 0),
+          co: Number(duDauKy.recordset[0]?.co || 0),
+        };
+        const duDauKyNet = dauKy.no - dauKy.co;
+
+        let soDu = duDauKyNet;
+        const rows = chiTiet.recordset.map(r => {
+          soDu += Number(r.ps_no || 0) - Number(r.ps_co || 0);
+          return { ...r, so_du: soDu };
+        });
+
+        db.run(`DELETE FROM congno_chitiet_cache WHERE ma_kh = ? AND tu_ngay = ? AND den_ngay = ?`,
+          [ma_kh, fromDate, today]);
+
+        for (const r of rows) {
+          db.run(`
+            INSERT INTO congno_chitiet_cache
+              (ma_kh, tu_ngay, den_ngay, dau_ky_net, dau_ky_no, dau_ky_co,
+               ngay_ct, ngay_hd, so_ct, dien_giai, ps_no, ps_co, tk_du, so_du, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `, [
+            ma_kh, fromDate, today, duDauKyNet, dauKy.no, dauKy.co,
+            r.ngay_ct ? new Date(r.ngay_ct).toISOString().slice(0, 10) : null,
+            r.ngay_hd ? new Date(r.ngay_hd).toISOString().slice(0, 10) : null,
+            r.so_ct || '', r.dien_giai || '',
+            r.ps_no || 0, r.ps_co || 0,
+            r.tk_du || '', r.so_du || 0,
+            now,
+          ]);
+        }
+        count++;
+      } catch (innerErr) {
+        console.error(`   ⚠️  Lỗi cache công nợ chi tiết KH ${ma_kh}:`, innerErr.message);
+      }
+    }
+
+    saveSyncMeta(db, 'last_sync_congno_chitiet');
+    saveDb(db);
+    console.log(`✅ Sync công nợ chi tiết: ${count}/${maKhList.length} khách hàng`);
+    return { success: true, count };
+  } catch (err) {
+    console.error('❌ Sync công nợ chi tiết lỗi:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+// ─── Sync chi tiết tồn kho (6 tháng gần nhất, theo từng mặt hàng) ────────────
+async function syncTonkhoChiTiet() {
+  console.log('🔄 Sync tồn kho chi tiết (6 tháng gần nhất)...');
+  try {
+    const misa = await getMisaPool();
+    const today     = new Date().toISOString().slice(0, 10);
+    const sixMonths = new Date();
+    sixMonths.setMonth(sixMonths.getMonth() - 6);
+    const fromDate  = sixMonths.toISOString().slice(0, 10);
+
+    // Lấy danh sách mặt hàng có biến động trong 6 tháng gần nhất
+    const listReq = misa.request();
+    listReq.input('tu_ngay', sql.Date, new Date(fromDate));
+    const listResult = await listReq.query(`
+      SELECT DISTINCT il.InventoryItemCode AS ma_hang
+      FROM InventoryLedger il
+      WHERE il.InventoryItemCode IS NOT NULL
+        AND il.InventoryItemCode <> ''
+        AND il.PostedDate >= @tu_ngay
+        AND (il.InwardQuantity <> 0 OR il.OutwardQuantity <> 0)
+    `);
+
+    const maHangList = listResult.recordset.map(r => r.ma_hang).filter(Boolean);
+    console.log(`   → ${maHangList.length} mặt hàng có biến động trong 6 tháng`);
+
+    const db  = await getDb();
+    const now = new Date().toLocaleString('vi-VN');
+    let count = 0;
+
+    for (const ma_hang of maHangList) {
+      try {
+        const req1 = misa.request();
+        req1.input('ma_hang',  sql.NVarChar, ma_hang);
+        req1.input('tu_ngay',  sql.Date, new Date(fromDate));
+        req1.input('den_ngay', sql.Date, new Date(today));
+
+        const dauKyRes = await req1.query(`
+          SELECT
+            ISNULL(SUM(InwardQuantity),  0) AS nhap_sl,
+            ISNULL(SUM(OutwardQuantity), 0) AS xuat_sl,
+            ISNULL(SUM(InwardAmount),    0) AS nhap_gt,
+            ISNULL(SUM(OutwardAmount),   0) AS xuat_gt
+          FROM InventoryLedger
+          WHERE InventoryItemCode = @ma_hang
+            AND PostedDate < @tu_ngay
+        `);
+
+        const req2 = misa.request();
+        req2.input('ma_hang',  sql.NVarChar, ma_hang);
+        req2.input('tu_ngay',  sql.Date, new Date(fromDate));
+        req2.input('den_ngay', sql.Date, new Date(today));
+
+        const chiTietRes = await req2.query(`
+          SELECT
+            il.PostedDate                 AS ngay_hach_toan,
+            il.RefDate                    AS ngay_ct,
+            il.RefNo                      AS so_ct,
+            il.Description                AS dien_giai,
+            il.UnitPrice                  AS don_gia,
+            il.InwardQuantity             AS nhap_sl,
+            il.InwardAmount               AS nhap_gt,
+            il.OutwardQuantity            AS xuat_sl,
+            il.OutwardAmount              AS xuat_gt,
+            il.StockName                  AS kho,
+            MAX(il.InventoryItemName)     AS ten_hang
+          FROM InventoryLedger il
+          WHERE il.InventoryItemCode = @ma_hang
+            AND il.PostedDate BETWEEN @tu_ngay AND @den_ngay
+            AND (il.InwardQuantity <> 0 OR il.OutwardQuantity <> 0)
+          GROUP BY
+            il.PostedDate, il.RefDate, il.RefNo, il.Description,
+            il.UnitPrice, il.InwardQuantity, il.InwardAmount,
+            il.OutwardQuantity, il.OutwardAmount, il.StockName
+          ORDER BY il.PostedDate ASC, il.RefNo ASC
+        `);
+
+        const dk      = dauKyRes.recordset[0];
+        const dauKySL = Number(dk.nhap_sl) - Number(dk.xuat_sl);
+        const dauKyGT = Number(dk.nhap_gt) - Number(dk.xuat_gt);
+        const dauKyDonGia = dauKySL !== 0 ? Math.abs(dauKyGT / dauKySL) : 0;
+
+        let tonSL = dauKySL, tonGT = dauKyGT;
+        const rows = chiTietRes.recordset.map(r => {
+          tonSL += Number(r.nhap_sl || 0) - Number(r.xuat_sl || 0);
+          tonGT += Number(r.nhap_gt || 0) - Number(r.xuat_gt || 0);
+          return { ...r, ton_sl: tonSL, ton_gt: tonGT };
+        });
+
+        db.run(`DELETE FROM tonkho_chitiet_cache WHERE ma_hang = ? AND tu_ngay = ? AND den_ngay = ?`,
+          [ma_hang, fromDate, today]);
+
+        if (rows.length === 0) {
+          db.run(`
+            INSERT INTO tonkho_chitiet_cache
+              (ma_hang, tu_ngay, den_ngay, ten_hang, dau_ky_sl, dau_ky_gt, dau_ky_don_gia, updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
+          `, [ma_hang, fromDate, today, '', dauKySL, dauKyGT, dauKyDonGia, now]);
+        } else {
+          for (const r of rows) {
+            db.run(`
+              INSERT INTO tonkho_chitiet_cache
+                (ma_hang, tu_ngay, den_ngay, ten_hang, dau_ky_sl, dau_ky_gt, dau_ky_don_gia,
+                 ngay_hach_toan, ngay_ct, so_ct, dien_giai, dvt, don_gia,
+                 nhap_sl, nhap_gt, xuat_sl, xuat_gt, kho, ton_sl, ton_gt, updated_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            `, [
+              ma_hang, fromDate, today, r.ten_hang || '', dauKySL, dauKyGT, dauKyDonGia,
+              r.ngay_hach_toan ? new Date(r.ngay_hach_toan).toISOString().slice(0, 10) : null,
+              r.ngay_ct        ? new Date(r.ngay_ct).toISOString().slice(0, 10)        : null,
+              r.so_ct || '', r.dien_giai || '', r.dvt || '',
+              r.don_gia || 0,
+              r.nhap_sl || 0, r.nhap_gt || 0,
+              r.xuat_sl || 0, r.xuat_gt || 0,
+              r.kho || '',
+              r.ton_sl || 0, r.ton_gt || 0,
+              now,
+            ]);
+          }
+        }
+        count++;
+      } catch (innerErr) {
+        console.error(`   ⚠️  Lỗi cache tồn kho chi tiết MH ${ma_hang}:`, innerErr.message);
+      }
+    }
+
+    saveSyncMeta(db, 'last_sync_tonkho_chitiet');
+    saveDb(db);
+    console.log(`✅ Sync tồn kho chi tiết: ${count}/${maHangList.length} mặt hàng`);
+    return { success: true, count };
+  } catch (err) {
+    console.error('❌ Sync tồn kho chi tiết lỗi:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 // ─── Scheduler ───────────────────────────────────────────────────────────────
 function startSyncScheduler() {
   const minutes = parseInt(process.env.SYNC_INTERVAL_MINUTES) || 15;
@@ -320,6 +572,23 @@ function startSyncScheduler() {
     await syncTonkho();
     await syncCongno();
   });
+
+  // Pre-cache chi tiết (nặng hơn) — chạy 1 lần/ngày lúc 2h sáng
+  const chiTietCron = process.env.SYNC_CHITIET_CRON || '0 2 * * *';
+  console.log(`⏰ Auto pre-cache chi tiết theo lịch: ${chiTietCron}`);
+  cron.schedule(chiTietCron, async () => {
+    const online = await isMisaOnline();
+    if (!online) {
+      console.log('⚠️  MISA offline — bỏ qua pre-cache chi tiết lần này');
+      return;
+    }
+    await syncCongnoChiTiet();
+    await syncTonkhoChiTiet();
+  });
 }
 
-module.exports = { syncProducts, syncCustomers, syncTonkho, syncCongno, startSyncScheduler };
+module.exports = {
+  syncProducts, syncCustomers, syncTonkho, syncCongno,
+  syncCongnoChiTiet, syncTonkhoChiTiet,
+  startSyncScheduler,
+};

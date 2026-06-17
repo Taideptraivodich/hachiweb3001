@@ -98,6 +98,54 @@ async function setupDatabase() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_congno_cache_ngay ON congno_cache(tu_ngay, den_ngay)`,
 
+    // ── Cache công nợ chi tiết ──────────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS congno_chitiet_cache (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      ma_kh       TEXT NOT NULL,
+      tu_ngay     TEXT NOT NULL,
+      den_ngay    TEXT NOT NULL,
+      dau_ky_net  REAL DEFAULT 0,
+      dau_ky_no   REAL DEFAULT 0,
+      dau_ky_co   REAL DEFAULT 0,
+      ngay_ct     TEXT,
+      ngay_hd     TEXT,
+      so_ct       TEXT,
+      dien_giai   TEXT,
+      ps_no       REAL DEFAULT 0,
+      ps_co       REAL DEFAULT 0,
+      tk_du       TEXT,
+      so_du       REAL DEFAULT 0,
+      updated_at  TEXT DEFAULT (datetime('now','localtime'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_congno_ct_cache ON congno_chitiet_cache(ma_kh, tu_ngay, den_ngay)`,
+
+    // ── Cache tồn kho chi tiết ──────────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS tonkho_chitiet_cache (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      ma_hang     TEXT NOT NULL,
+      tu_ngay     TEXT NOT NULL,
+      den_ngay    TEXT NOT NULL,
+      ten_hang    TEXT DEFAULT '',
+      dau_ky_sl   REAL DEFAULT 0,
+      dau_ky_gt   REAL DEFAULT 0,
+      dau_ky_don_gia REAL DEFAULT 0,
+      ngay_hach_toan TEXT,
+      ngay_ct     TEXT,
+      so_ct       TEXT,
+      dien_giai   TEXT,
+      dvt         TEXT,
+      don_gia     REAL DEFAULT 0,
+      nhap_sl     REAL DEFAULT 0,
+      nhap_gt     REAL DEFAULT 0,
+      xuat_sl     REAL DEFAULT 0,
+      xuat_gt     REAL DEFAULT 0,
+      kho         TEXT,
+      ton_sl      REAL DEFAULT 0,
+      ton_gt      REAL DEFAULT 0,
+      updated_at  TEXT DEFAULT (datetime('now','localtime'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_tonkho_ct_cache ON tonkho_chitiet_cache(ma_hang, tu_ngay, den_ngay)`,
+
     // ── Meta: lưu thời điểm sync cuối ──────────────────────────────────────
     `CREATE TABLE IF NOT EXISTS sync_meta (
       key        TEXT PRIMARY KEY,

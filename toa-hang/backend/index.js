@@ -4,7 +4,7 @@ const cors     = require('cors');
 const path     = require('path');
 
 const { setupDatabase }     = require('./src/setup');
-const { startSyncScheduler, syncProducts, syncCustomers, syncTonkho, syncCongno } = require('./src/sync');
+const { startSyncScheduler, syncProducts, syncCustomers, syncTonkho, syncCongno, syncCongnoChiTiet, syncTonkhoChiTiet } = require('./src/sync');
 const productsRouter = require('./src/routes/products');
 const ordersRouter   = require('./src/routes/orders');
 const reportsRouter  = require('./src/routes/reports');
@@ -52,6 +52,10 @@ async function start() {
     await syncCustomers();
     await syncTonkho();
     await syncCongno();
+
+    // Pre-cache chi tiết (6 tháng gần nhất) — chạy ngầm, không chặn server start
+    syncCongnoChiTiet().catch(() => {});
+    syncTonkhoChiTiet().catch(() => {});
 
     // Bắt đầu scheduler
     startSyncScheduler();
