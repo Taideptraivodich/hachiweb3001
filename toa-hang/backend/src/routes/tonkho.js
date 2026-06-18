@@ -108,6 +108,17 @@ router.get('/tong-hop', async (req, res) => {
       if (kho) data = data.filter(r => (r.kho || '') === kho);
 
       const danhSachKho = [...new Set(result.recordset.map(r => r.kho).filter(Boolean))].sort();
+
+      // [DEBUG phiên 2026-06-18] log theo mục 6 handover, nhánh MISA online.
+      console.log({
+        route: '/tonkho/tong-hop',
+        from_cache: false,
+        requested_tu_ngay: fromDate,
+        requested_den_ngay: toDate,
+        rows: data.length,
+        firstRow: data[0],
+      });
+
       return res.json({ success: true, data, danhSachKho, total: data.length, from_cache: false });
     } catch (err) {
       console.error('❌ Tồn kho tổng hợp MISA lỗi:', err.message);
@@ -128,16 +139,33 @@ router.get('/tong-hop', async (req, res) => {
       ORDER BY ten_hang
     `, [fromDate, toDate]);
 
+    let usedFrom = fromDate, usedTo = toDate;
+
     if (!rows || rows.length === 0) {
-      rows = dbQuery(db, `
-        SELECT ma_hang, ten_hang, kho, dvt,
-               dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt,
-               xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt,
-               tu_ngay, den_ngay, updated_at
-        FROM tonkho_cache
-        ORDER BY updated_at DESC
-        LIMIT 5000
-      `, []);
+      // [FIX phiên 2026-06-18] KHÔNG dùng "ORDER BY updated_at DESC LIMIT 5000"
+      // nữa — kiểu cũ trộn nhiều kỳ cache khác nhau vào 1 response, sinh ra
+      // duplicate (ma_hang, kho) thật (đã xác nhận bằng dữ liệu thật: 881 cặp
+      // ma_hang+kho bị lặp tới 4 lần do cache đang giữ 4 kỳ khác nhau). Thay
+      // bằng: lấy NGUYÊN 1 kỳ gần nhất từng được cache (giống cách /chi-tiet
+      // đang làm đúng), rồi nói rõ cho user biết đang xem kỳ nào qua cache_note.
+      const nearest = dbGet(db, `
+        SELECT tu_ngay, den_ngay FROM tonkho_cache
+        ORDER BY updated_at DESC LIMIT 1
+      `);
+      if (nearest) {
+        usedFrom = nearest.tu_ngay;
+        usedTo   = nearest.den_ngay;
+        rows = dbQuery(db, `
+          SELECT ma_hang, ten_hang, kho, dvt,
+                 dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt,
+                 xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt, updated_at
+          FROM tonkho_cache
+          WHERE tu_ngay = ? AND den_ngay = ?
+          ORDER BY ten_hang
+        `, [usedFrom, usedTo]);
+      } else {
+        rows = [];
+      }
     }
     db.close();
 
@@ -154,13 +182,32 @@ router.get('/tong-hop', async (req, res) => {
 
     const danhSachKho = [...new Set(rows.map(r => r.kho).filter(Boolean))].sort();
     const lastSync    = await getLastSync('last_sync_tonkho');
+
+    // [DEBUG phiên 2026-06-18] log đúng theo mục 6 handover để xác nhận khi
+    // test thật: kỳ user chọn vs kỳ thực tế trả về, số dòng. Xoá sau khi xong.
+    console.log({
+      route: '/tonkho/tong-hop',
+      from_cache: true,
+      requested_tu_ngay: fromDate,
+      requested_den_ngay: toDate,
+      used_tu_ngay: usedFrom,
+      used_den_ngay: usedTo,
+      rows: rows.length,
+      firstRow: rows[0],
+    });
+
     return res.json({
       success: true,
       data,
       danhSachKho,
       total: data.length,
       from_cache: true,
-      cache_note: `⚠️ Dữ liệu offline — lần sync cuối: ${lastSync || 'chưa có'}`,
+      used_tu_ngay: usedFrom,
+      used_den_ngay: usedTo,
+      cache_note: `⚠️ Dữ liệu offline — lần sync cuối: ${lastSync || 'chưa có'}`
+        + (usedFrom !== fromDate || usedTo !== toDate
+            ? ` (chưa có cache cho kỳ bạn chọn, đang hiển thị kỳ ${usedFrom} → ${usedTo})`
+            : ''),
     });
   } catch (cacheErr) {
     console.error('❌ Đọc cache tồn kho lỗi:', cacheErr.message);

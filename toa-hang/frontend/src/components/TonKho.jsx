@@ -588,21 +588,27 @@ export default function TonKho() {
   const [loaded, setLoaded]       = useState(false);
   const [selectedHang, setHang]   = useState(null);
   const [filters, setFilters]     = useState({ q:'', kho:'' });
+  const [cacheInfo, setCacheInfo] = useState(null);
 
   const handleSelect = useCallback(r => setHang(r), []);
   const handleFilter = useCallback(patch => setFilters(f => ({ ...f, ...patch })), []);
 
-  async function loadData() {
+  // [FIX phiên 2026-06-18] loadData nhận range làm THAM SỐ thay vì đọc qua
+  // closure của state `range` — trước đây RangePicker.onChange gọi
+  // setTimeout(loadData, 0), nhưng `loadData` đó là closure của lần render
+  // TRƯỚC nên vẫn đọc `range` CŨ (chậm 1 nhịp so với lựa chọn của user).
+  async function loadData(activeRange = range) {
     setLoading(true);
     try {
       const r = await api.get('/tonkho/tong-hop', {
         params: {
-          tu_ngay:  range[0]?.format('YYYY-MM-DD'),
-          den_ngay: range[1]?.format('YYYY-MM-DD'),
+          tu_ngay:  activeRange[0]?.format('YYYY-MM-DD'),
+          den_ngay: activeRange[1]?.format('YYYY-MM-DD'),
         },
       });
       setRawData(r.data.data || []);
       setKhoList(r.data.danhSachKho || []);
+      setCacheInfo(r.data.from_cache ? { cache_note: r.data.cache_note } : null);
       setLoaded(true);
       setFilters({ q:'', kho:'' });
     } catch (e) {
@@ -639,7 +645,7 @@ export default function TonKho() {
           <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:20, flexWrap:'wrap' }}>
             <RangePicker
               value={range}
-              onChange={(v, s) => { if (v?.[0] && v?.[1]) { setRange(v); setTimeout(loadData, 0); } else if (v) { setRange(v); } }}
+              onChange={(v, s) => { if (v?.[0] && v?.[1]) { setRange(v); loadData(v); } else if (v) { setRange(v); } }}
               format="DD/MM/YYYY"
               presets={[
                 { label:'Tháng này',   value:[dayjs().startOf('month'), dayjs()] },
@@ -648,16 +654,34 @@ export default function TonKho() {
                 { label:'Năm nay',     value:[dayjs().startOf('year'), dayjs()] },
               ]}
             />
-            <Button id="btn-xem-tonkho" type="primary" icon={<SearchOutlined />} onClick={loadData} loading={loading}>
+            <Button id="btn-xem-tonkho" type="primary" icon={<SearchOutlined />} onClick={() => loadData(range)} loading={loading}>
               Xem tồn kho
             </Button>
-            {loaded && <Button icon={<ReloadOutlined />} onClick={loadData}>Làm mới</Button>}
+            {loaded && <Button icon={<ReloadOutlined />} onClick={() => loadData(range)}>Làm mới</Button>}
             {loaded && (
               <Text style={{ color:C.sub, fontSize:12 }}>
                 Từ {range[0]?.format('DD/MM/YYYY')} đến {range[1]?.format('DD/MM/YYYY')}
               </Text>
             )}
           </div>
+
+          {/* [FIX phiên 2026-06-18] Trước đây màn Tổng hợp không hiển thị
+              from_cache/cache_note ở đâu cả — thêm banner để user biết ngay
+              khi đang xem dữ liệu cache của 1 kỳ khác kỳ đã chọn. */}
+          {cacheInfo && (
+            <div style={{
+              display:'flex', alignItems:'flex-start', gap:8,
+              padding:'10px 14px', marginBottom:14,
+              background:'rgba(217,119,6,0.12)', border:'1px solid #d97706',
+              borderRadius:6, fontSize:13, color:C.text,
+            }}>
+              <WarningOutlined style={{ color:'#d97706', marginTop:2 }} />
+              <div>
+                <div style={{ fontWeight:600 }}>Đang xem dữ liệu cache offline (MISA không kết nối được)</div>
+                <div style={{ color:C.sub, marginTop:2 }}>{cacheInfo.cache_note}</div>
+              </div>
+            </div>
+          )}
 
           {!loaded && !loading && (
             <div style={{ textAlign:'center', padding:'60px 0', color:C.muted }}>
