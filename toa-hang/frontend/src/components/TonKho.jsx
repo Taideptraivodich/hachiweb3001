@@ -446,6 +446,25 @@ export function ChiTietPanel({ hang, initialRange, onBack }) {
         )}
       </div>
 
+      {/* [DEBUG/FIX phiên 2026-06-17] Trước đây ChiTietPanel không hiển thị
+          from_cache/cache_note ở đâu cả — user không biết đang xem dữ liệu
+          online hay cache của một kỳ khác. Thêm banner để lộ rõ điều này,
+          tương tự cách đã làm ở bảng Tổng hợp tồn kho. */}
+      {data?.from_cache && (
+        <div style={{
+          display:'flex', alignItems:'flex-start', gap:8,
+          padding:'10px 14px', marginBottom:14,
+          background:'rgba(217,119,6,0.12)', border:'1px solid #d97706',
+          borderRadius:6, fontSize:13, color:C.text,
+        }}>
+          <WarningOutlined style={{ color:'#d97706', marginTop:2 }} />
+          <div>
+            <div style={{ fontWeight:600 }}>Đang xem dữ liệu cache offline (MISA không kết nối được)</div>
+            <div style={{ color:C.sub, marginTop:2 }}>{data.cache_note}</div>
+          </div>
+        </div>
+      )}
+
       <Spin spinning={loading}>
         {!data ? null : (
           <>

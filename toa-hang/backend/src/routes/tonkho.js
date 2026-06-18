@@ -244,6 +244,17 @@ router.get('/chi-tiet', async (req, res) => {
       // Lưu cache chi tiết
       _updateTonkhoChiTietCache(ma_hang, fromDate, toDate, dauKySL, dauKyGT, dauKyDonGia, rows).catch(() => {});
 
+      // [DEBUG phiên 2026-06-17] log để xác nhận route /chi-tiet có nhận đúng
+      // tu_ngay/den_ngay từ frontend khi MISA online hay không. Xoá sau khi điều tra xong.
+      console.log({
+        route: '/tonkho/chi-tiet',
+        from_cache: false,
+        ma_hang,
+        tu_ngay: fromDate,
+        den_ngay: toDate,
+        rows: rows.length,
+      });
+
       return res.json({
         success: true, ma_hang,
         ten_hang: rows[0]?.ten_hang || ma_hang,
@@ -320,6 +331,22 @@ router.get('/chi-tiet', async (req, res) => {
     }
 
     const h = header || { dau_ky_sl: 0, dau_ky_gt: 0, dau_ky_don_gia: 0 };
+
+    // [DEBUG phiên 2026-06-17] log để xác nhận khi MISA offline, route /chi-tiet
+    // có đang trả đúng kỳ user chọn (fromDate/toDate) hay đang lùi về kỳ cache
+    // gần nhất (usedFrom/usedTo khác fromDate/toDate). Xoá sau khi điều tra xong.
+    console.log({
+      route: '/tonkho/chi-tiet',
+      from_cache: true,
+      ma_hang,
+      tu_ngay_user_chon: fromDate,
+      den_ngay_user_chon: toDate,
+      header_matched_dung_ky: !!header,
+      tu_ngay_thuc_te: usedFrom,
+      den_ngay_thuc_te: usedTo,
+      rows: rows.length,
+    });
+
     return res.json({
       success: true,
       ma_hang,
