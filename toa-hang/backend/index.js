@@ -13,6 +13,7 @@ const congnoRouter   = require('./src/routes/congno');
 const tonkhoRouter   = require('./src/routes/tonkho');
 
 const syncStatusRouter = require('./src/routes/sync_status');
+const bangCongNoRouter = require('./src/routes/bang_cong_no');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -28,6 +29,7 @@ app.use('/api/reports',   reportsRouter);
 app.use('/api/history',   historyRouter);
 app.use('/api/congno',    congnoRouter);
 app.use('/api/tonkho',   tonkhoRouter);
+app.use('/api/bang-cong-no', bangCongNoRouter);
 app.use('/api/sync',     syncStatusRouter);
 
 // Health check

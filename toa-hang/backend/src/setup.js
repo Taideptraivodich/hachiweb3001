@@ -146,6 +146,35 @@ async function setupDatabase() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_tonkho_ct_cache ON tonkho_chitiet_cache(ma_hang, tu_ngay, den_ngay)`,
 
+    // ── Bảng công nợ gửi khách ──────────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS bang_cong_no_draft (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      ma_kh                 TEXT,
+      ten_kh                TEXT NOT NULL,
+      tu_ngay               TEXT,
+      den_ngay              TEXT,
+      tieu_de               TEXT,
+      source_file_name      TEXT,
+      dau_ky                INTEGER DEFAULT 0,
+      tong_ps               INTEGER DEFAULT 0,
+      tong_tt               INTEGER DEFAULT 0,
+      tong_dieu_chinh_tang  INTEGER DEFAULT 0,
+      tong_dieu_chinh_giam  INTEGER DEFAULT 0,
+      cuoi_ky_app           INTEGER DEFAULT 0,
+      cuoi_ky_misa          INTEGER DEFAULT 0,
+      chenh_lech            INTEGER DEFAULT 0,
+      reconcile_status      TEXT DEFAULT 'chua_doi_chieu',
+      status                TEXT DEFAULT 'draft',
+      draft_json            TEXT NOT NULL,
+      export_excel_path     TEXT,
+      export_image_path     TEXT,
+      created_at            TEXT DEFAULT (datetime('now','localtime')),
+      updated_at            TEXT DEFAULT (datetime('now','localtime'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_bcn_draft_ma_kh   ON bang_cong_no_draft(ma_kh)`,
+    `CREATE INDEX IF NOT EXISTS idx_bcn_draft_status  ON bang_cong_no_draft(status)`,
+    `CREATE INDEX IF NOT EXISTS idx_bcn_draft_ten_kh  ON bang_cong_no_draft(ten_kh)`,
+
     // ── Meta: lưu thời điểm sync cuối ──────────────────────────────────────
     `CREATE TABLE IF NOT EXISTS sync_meta (
       key        TEXT PRIMARY KEY,

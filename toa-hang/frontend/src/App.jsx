@@ -3,24 +3,26 @@ import { Layout, Menu, Typography, Button, message, Space, ConfigProvider, theme
 import {
   FileTextOutlined, BarChartOutlined, ReloadOutlined,
   DatabaseOutlined, BankOutlined, InboxOutlined,
-  SunOutlined, MoonOutlined, TagsOutlined, MenuOutlined,
+  SunOutlined, MoonOutlined, TagsOutlined, MenuOutlined, FileDoneOutlined,
 } from '@ant-design/icons';
 import OrderList from './components/OrderList';
 import Reports   from './components/Reports';
 import CongNo    from './components/CongNo';
 import TonKho    from './components/TonKho';
 import MaNgoai   from './components/MaNgoai';
+import BangCongNo from './components/BangCongNo';
 import { syncAll } from './api';
 
 const { Header, Content, Sider } = Layout;
 const { Text } = Typography;
 
 const MENU_ITEMS = [
-  { key: 'orders',   icon: <FileTextOutlined />, label: 'Toa hàng'  },
-  { key: 'reports',  icon: <BarChartOutlined />, label: 'Báo cáo'   },
-  { key: 'congno',   icon: <BankOutlined />,     label: 'Công nợ'   },
-  { key: 'tonkho',   icon: <InboxOutlined />,    label: 'Tồn kho'   },
-  { key: 'manggoai', icon: <TagsOutlined />,     label: 'Mã ngoài'  },
+  { key: 'orders',     icon: <FileTextOutlined />, label: 'Toa hàng'  },
+  { key: 'reports',    icon: <BarChartOutlined />, label: 'Báo cáo'   },
+  { key: 'congno',     icon: <BankOutlined />,     label: 'Công nợ'   },
+  { key: 'bangcongno', icon: <FileDoneOutlined />, label: 'Bảng CN'   },
+  { key: 'tonkho',     icon: <InboxOutlined />,    label: 'Tồn kho'   },
+  { key: 'manggoai',   icon: <TagsOutlined />,     label: 'Mã ngoài'  },
 ];
 
 function useIsMobile() {
@@ -160,6 +162,7 @@ export default function App() {
             {page === 'reports'  && <Reports />}
             {page === 'congno'   && <CongNo />}
             {page === 'tonkho'   && <TonKho />}
+            {page === 'bangcongno' && <BangCongNo />}
             {page === 'manggoai' && <MaNgoai />}
           </Content>
         </Layout>
