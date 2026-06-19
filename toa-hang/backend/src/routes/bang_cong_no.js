@@ -29,6 +29,16 @@ function calcSummary(draft) {
   return { dau_ky, tong_ps, tong_tt, tong_dieu_chinh_tang, tong_dieu_chinh_giam, cuoi_ky_app };
 }
 
+// ─── Phase 2: Reconcile helper ──────────────────────────────────────────────
+function calcReconcile(cuoi_ky_app, cuoi_ky_misa, misaIsSet) {
+  const cuoi_ky_misa_int = Math.round(Number(cuoi_ky_misa) || 0);
+  if (!misaIsSet) {
+    return { cuoi_ky_misa_int, chenh_lech: 0, reconcile_status: 'chua_doi_chieu' };
+  }
+  const chenh_lech = cuoi_ky_app - cuoi_ky_misa_int;
+  return { cuoi_ky_misa_int, chenh_lech, reconcile_status: chenh_lech === 0 ? 'khop' : 'lech' };
+}
+
 // ─── GET /bang-cong-no ── Danh sách draft ───────────────────────────────────
 router.get('/', async (req, res) => {
   try {
@@ -72,23 +82,20 @@ router.get('/:id', async (req, res) => {
 // ─── POST /bang-cong-no ── Tạo draft mới ────────────────────────────────────
 router.post('/', async (req, res) => {
   try {
-    const { ma_kh, ten_kh, tu_ngay, den_ngay, tieu_de, source_file_name, draft_json, cuoi_ky_misa } = req.body;
+    const { ma_kh, ten_kh, tu_ngay, den_ngay, tieu_de, source_file_name, draft_json, cuoi_ky_misa, misa_is_set } = req.body;
     if (!ten_kh) return res.status(400).json({ success: false, error: 'Thiếu ten_kh' });
     if (!draft_json) return res.status(400).json({ success: false, error: 'Thiếu draft_json' });
 
     const summary = calcSummary(draft_json);
-    const cuoi_ky_misa_int = Math.round(Number(cuoi_ky_misa) || 0);
-    const chenh_lech = summary.cuoi_ky_app - cuoi_ky_misa_int;
-    const reconcile_status = cuoi_ky_misa_int === 0
-      ? 'chua_doi_chieu'
-      : (chenh_lech === 0 ? 'khop' : 'lech');
+    const misaIsSet = Boolean(misa_is_set);
+    const { cuoi_ky_misa_int, chenh_lech, reconcile_status } = calcReconcile(summary.cuoi_ky_app, cuoi_ky_misa, misaIsSet);
 
-    // Cập nhật reconcile vào draft_json
     draft_json.reconcile = {
       cuoi_ky_app:  summary.cuoi_ky_app,
       cuoi_ky_misa: cuoi_ky_misa_int,
       chenh_lech,
       status: reconcile_status,
+      misa_is_set: misaIsSet,
     };
 
     const db  = await getDb();
@@ -122,24 +129,22 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { ma_kh, ten_kh, tu_ngay, den_ngay, tieu_de, source_file_name,
-            draft_json, cuoi_ky_misa, status } = req.body;
+            draft_json, cuoi_ky_misa, misa_is_set, status } = req.body;
 
     const db = await getDb();
     const existing = dbGet(db, 'SELECT id FROM bang_cong_no_draft WHERE id = ?', [req.params.id]);
     if (!existing) { db.close(); return res.status(404).json({ success: false, error: 'Không tìm thấy' }); }
 
     const summary = calcSummary(draft_json);
-    const cuoi_ky_misa_int = Math.round(Number(cuoi_ky_misa) || 0);
-    const chenh_lech = summary.cuoi_ky_app - cuoi_ky_misa_int;
-    const reconcile_status = cuoi_ky_misa_int === 0
-      ? 'chua_doi_chieu'
-      : (chenh_lech === 0 ? 'khop' : 'lech');
+    const misaIsSet = Boolean(misa_is_set);
+    const { cuoi_ky_misa_int, chenh_lech, reconcile_status } = calcReconcile(summary.cuoi_ky_app, cuoi_ky_misa, misaIsSet);
 
     draft_json.reconcile = {
       cuoi_ky_app:  summary.cuoi_ky_app,
       cuoi_ky_misa: cuoi_ky_misa_int,
       chenh_lech,
       status: reconcile_status,
+      misa_is_set: misaIsSet,
     };
 
     const now = new Date().toLocaleString('vi-VN');
