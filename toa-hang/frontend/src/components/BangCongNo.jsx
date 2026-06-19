@@ -82,6 +82,116 @@ function calcSummaryFromDraft(draft) {
   return { dau_ky, tong_ps, tong_tt, tong_dieu_chinh_tang, tong_dieu_chinh_giam, cuoi_ky_app };
 }
 
+// ─── Phase 3: Gợi ý đối trừ thanh toán ──────────────────────────────────────
+// Danh sách khoản nợ theo thứ tự ưu tiên FIFO: đầu kỳ → phát sinh (ngày tăng dần) → điều chỉnh tăng (ngày tăng dần)
+function buildDebtQueue(draft) {
+  const dauKy = (draft.dau_ky_rows || [])
+    .filter(r => !r.deleted && Math.round(Number(r.so_tien) || 0) > 0)
+    .map(r => ({ target_type: 'dau_ky', target_id: r.id, amount: Math.round(Number(r.so_tien) || 0) }));
+  const phatSinh = (draft.phat_sinh_rows || [])
+    .filter(r => !r.deleted && Math.round(Number(r.final_amount) || 0) > 0)
+    .map(r => ({ target_type: 'phat_sinh', target_id: r.id, ngay: r.ngay || '', amount: Math.round(Number(r.final_amount) || 0) }))
+    .sort((a, b) => (a.ngay || '').localeCompare(b.ngay || ''));
+  const dieuChinhTang = (draft.dieu_chinh_rows || [])
+    .filter(r => !r.deleted && r.direction === 'tang' && Math.round(Number(r.so_tien) || 0) > 0)
+    .map(r => ({ target_type: 'dieu_chinh', target_id: r.id, ngay: r.ngay || '', amount: Math.round(Number(r.so_tien) || 0) }))
+    .sort((a, b) => (a.ngay || '').localeCompare(b.ngay || ''));
+  return [...dauKy, ...phatSinh, ...dieuChinhTang];
+}
+
+// Danh sách thanh toán theo ngày tăng dần
+function buildPaymentQueue(draft) {
+  return (draft.thanh_toan_rows || [])
+    .filter(r => !r.deleted && Math.round(Number(r.so_tien) || 0) > 0)
+    .map(r => ({ id: r.id, ngay: r.ngay || '', amount: Math.round(Number(r.so_tien) || 0) }))
+    .sort((a, b) => (a.ngay || '').localeCompare(b.ngay || ''));
+}
+
+// Tạo gợi ý đối trừ mới cho phần CHƯA được đối trừ (accepted/manual),
+// giữ nguyên các allocation đã accepted/ignored/manual.
+function generateAllocationSuggestions(draft) {
+  const existing  = draft.allocations || [];
+  const kept      = existing.filter(a => a.status !== 'suggested');
+  const committed = existing.filter(a => a.status === 'accepted' || a.status === 'manual');
+
+  const debts = buildDebtQueue(draft).map(d => {
+    const used = committed
+      .filter(a => a.target_type === d.target_type && a.target_id === d.target_id)
+      .reduce((s, a) => s + Math.round(Number(a.amount) || 0), 0);
+    return { ...d, remaining: Math.max(0, d.amount - used) };
+  });
+  const payments = buildPaymentQueue(draft).map(p => {
+    const used = committed
+      .filter(a => a.payment_id === p.id)
+      .reduce((s, a) => s + Math.round(Number(a.amount) || 0), 0);
+    return { ...p, remaining: Math.max(0, p.amount - used) };
+  });
+
+  const suggestions = [];
+  let di = 0;
+  for (const p of payments) {
+    let left = p.remaining;
+    while (left > 0 && di < debts.length) {
+      const d = debts[di];
+      if (d.remaining <= 0) { di++; continue; }
+      const amt = Math.min(left, d.remaining);
+      suggestions.push({
+        id: 'al_' + genId(),
+        payment_id: p.id,
+        target_type: d.target_type,
+        target_id: d.target_id,
+        amount: amt,
+        status: 'suggested',
+      });
+      d.remaining -= amt;
+      left -= amt;
+      if (d.remaining <= 0) di++;
+    }
+  }
+  return [...kept, ...suggestions];
+}
+
+// Tổng số tiền đã "chốt" (accepted/manual) cho 1 khoản nợ cụ thể
+function getCommittedAmountForTarget(allocations, target_type, target_id) {
+  return (allocations || [])
+    .filter(a => (a.status === 'accepted' || a.status === 'manual') && a.target_type === target_type && a.target_id === target_id)
+    .reduce((s, a) => s + Math.round(Number(a.amount) || 0), 0);
+}
+// Tổng số tiền đã "chốt" (accepted/manual) cho 1 khoản thanh toán cụ thể
+function getCommittedAmountForPayment(allocations, payment_id) {
+  return (allocations || [])
+    .filter(a => (a.status === 'accepted' || a.status === 'manual') && a.payment_id === payment_id)
+    .reduce((s, a) => s + Math.round(Number(a.amount) || 0), 0);
+}
+// Có allocation đang active (suggested/accepted/manual) liên quan tới khoản nợ này không (để highlight)
+function hasActiveAllocationForTarget(allocations, target_type, target_id) {
+  return (allocations || []).some(a => a.status !== 'ignored' && a.target_type === target_type && a.target_id === target_id);
+}
+function hasActiveAllocationForPayment(allocations, payment_id) {
+  return (allocations || []).some(a => a.status !== 'ignored' && a.payment_id === payment_id);
+}
+
+function getDebtLabel(draft, target_type, target_id) {
+  if (target_type === 'dau_ky') {
+    const r = (draft.dau_ky_rows || []).find(x => x.id === target_id);
+    return r ? `Đầu kỳ — ${r.mo_ta || ''}` : '(đã xoá)';
+  }
+  if (target_type === 'phat_sinh') {
+    const r = (draft.phat_sinh_rows || []).find(x => x.id === target_id);
+    return r ? `${r.ngay ? dayjs(r.ngay).format('DD/MM/YY') + ' · ' : ''}${r.ten_sp || ''}` : '(đã xoá)';
+  }
+  if (target_type === 'dieu_chinh') {
+    const r = (draft.dieu_chinh_rows || []).find(x => x.id === target_id);
+    return r ? `${r.ngay ? dayjs(r.ngay).format('DD/MM/YY') + ' · ' : ''}Điều chỉnh tăng — ${r.mo_ta || ''}` : '(đã xoá)';
+  }
+  return '—';
+}
+function getPaymentLabel(draft, payment_id) {
+  const r = (draft.thanh_toan_rows || []).find(x => x.id === payment_id);
+  if (!r) return '(đã xoá)';
+  return `${r.ngay ? dayjs(r.ngay).format('DD/MM/YY') + ' · ' : ''}${r.mo_ta || 'Thanh toán'}`;
+}
+
 // ─── Editable cell ───────────────────────────────────────────────────────────
 function EditableCell({ value, onChange, type = 'text', style }) {
   const [editing, setEditing] = useState(false);
@@ -129,7 +239,7 @@ function EditableCell({ value, onChange, type = 'text', style }) {
 }
 
 // ─── Section: Đầu kỳ ─────────────────────────────────────────────────────────
-function DauKySection({ rows, onChange }) {
+function DauKySection({ rows, onChange, allocations = [] }) {
   function updateRow(id, field, value) {
     onChange(rows.map(r => r.id === id ? { ...r, [field]: value } : r));
   }
@@ -162,10 +272,21 @@ function DauKySection({ rows, onChange }) {
             {visible.length === 0 && (
               <tr><td colSpan={3} style={{ textAlign: 'center', padding: 12, color: '#999' }}>Chưa có dữ liệu đầu kỳ</td></tr>
             )}
-            {visible.map(r => (
-              <tr key={r.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+            {visible.map(r => {
+              const active = hasActiveAllocationForTarget(allocations, 'dau_ky', r.id);
+              const committed = getCommittedAmountForTarget(allocations, 'dau_ky', r.id);
+              const soTien = Math.round(Number(r.so_tien) || 0);
+              const remaining = soTien - committed;
+              return (
+              <tr key={r.id} style={{ borderBottom: '1px solid #f0f0f0', background: active ? '#fffbe6' : undefined }}>
                 <td style={tdStyle}>
                   <EditableCell value={r.mo_ta} onChange={v => updateRow(r.id, 'mo_ta', v)} />
+                  {committed > 0 && (
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                      Đã đối trừ: {formatMoney(committed)}đ · Còn lại: {formatMoney(remaining)}đ
+                      {remaining <= 0 && <Tag color="success" style={{ marginLeft: 4, fontSize: 10, lineHeight: '14px', padding: '0 4px' }}>Đã thanh toán đủ</Tag>}
+                    </div>
+                  )}
                 </td>
                 <td style={{ ...tdStyle, textAlign: 'right' }}>
                   <EditableCell value={r.so_tien} type="number" onChange={v => updateRow(r.id, 'so_tien', v)} />
@@ -177,7 +298,8 @@ function DauKySection({ rows, onChange }) {
                   />
                 </td>
               </tr>
-            ))}
+              );
+            })}
             <tr style={{ background: '#fafafa', borderTop: '1px solid #d9d9d9' }}>
               <td style={{ ...tdStyle, fontWeight: 600 }}>Tổng đầu kỳ</td>
               <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: '#1677ff' }}>
@@ -193,7 +315,7 @@ function DauKySection({ rows, onChange }) {
 }
 
 // ─── Section: Phát sinh ──────────────────────────────────────────────────────
-function PhatSinhSection({ rows, onChange }) {
+function PhatSinhSection({ rows, onChange, allocations = [] }) {
   function updateRow(id, field, value) {
     onChange(rows.map(r => {
       if (r.id !== id) return r;
@@ -276,8 +398,13 @@ function PhatSinhSection({ rows, onChange }) {
               const subtotal = dateRows.reduce((s, r) => s + Math.round(Number(r.final_amount) || 0), 0);
               return (
                 <React.Fragment key={date}>
-                  {dateRows.map((r, idx) => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid #f5f5f5', background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                  {dateRows.map((r, idx) => {
+                    const active = hasActiveAllocationForTarget(allocations, 'phat_sinh', r.id);
+                    const committed = getCommittedAmountForTarget(allocations, 'phat_sinh', r.id);
+                    const finalAmt = Math.round(Number(r.final_amount) || 0);
+                    const remaining = finalAmt - committed;
+                    return (
+                    <tr key={r.id} style={{ borderBottom: '1px solid #f5f5f5', background: active ? '#fffbe6' : (idx % 2 === 0 ? '#fff' : '#fafafa') }}>
                       <td style={{ ...tdStyle, borderLeft: idx === 0 ? '3px solid #52c41a' : '3px solid transparent' }}>
                         {idx === 0
                           ? <EditableCell
@@ -292,7 +419,15 @@ function PhatSinhSection({ rows, onChange }) {
                           : ''}
                       </td>
                       <td style={tdStyle}><EditableCell value={r.ma_sp} onChange={v => updateRow(r.id, 'ma_sp', v)} /></td>
-                      <td style={tdStyle}><EditableCell value={r.ten_sp} onChange={v => updateRow(r.id, 'ten_sp', v)} /></td>
+                      <td style={tdStyle}>
+                        <EditableCell value={r.ten_sp} onChange={v => updateRow(r.id, 'ten_sp', v)} />
+                        {committed > 0 && (
+                          <div style={{ fontSize: 11, color: '#888' }}>
+                            Đã đối trừ: {formatMoney(committed)}đ · Còn lại: {formatMoney(remaining)}đ
+                            {remaining <= 0 && <Tag color="success" style={{ marginLeft: 4, fontSize: 10, lineHeight: '14px', padding: '0 4px' }}>Đã thanh toán đủ</Tag>}
+                          </div>
+                        )}
+                      </td>
                       <td style={tdStyle}><EditableCell value={r.dvt} onChange={v => updateRow(r.id, 'dvt', v)} /></td>
                       <td style={{ ...tdStyle, textAlign: 'right' }}>
                         <EditableCell value={r.sl} type="number" onChange={v => updateRow(r.id, 'sl', v)} />
@@ -313,7 +448,8 @@ function PhatSinhSection({ rows, onChange }) {
                         />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {/* Subtotal ngày */}
                   <tr style={{ background: '#f9fff4', borderTop: '1px dashed #b7eb8f' }}>
                     <td colSpan={7} style={{ ...tdStyle, textAlign: 'right', color: '#389e0d', fontSize: 12 }}>
@@ -346,7 +482,7 @@ function PhatSinhSection({ rows, onChange }) {
 }
 
 // ─── Section: Thanh toán ─────────────────────────────────────────────────────
-function ThanhToanSection({ rows, onChange }) {
+function ThanhToanSection({ rows, onChange, allocations = [] }) {
   function updateRow(id, field, value) {
     onChange(rows.map(r => r.id === id ? { ...r, [field]: value } : r));
   }
@@ -391,8 +527,11 @@ function ThanhToanSection({ rows, onChange }) {
                 Chưa có thanh toán. Sẽ tự điền từ MISA khi nhấn "Lấy dữ liệu MISA".
               </td></tr>
             )}
-            {visible.map(r => (
-              <tr key={r.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+            {visible.map(r => {
+              const active = hasActiveAllocationForPayment(allocations, r.id);
+              const committed = getCommittedAmountForPayment(allocations, r.id);
+              return (
+              <tr key={r.id} style={{ borderBottom: '1px solid #f0f0f0', background: active ? '#fffbe6' : undefined }}>
                 <td style={{ ...tdStyle, borderLeft: '3px solid #fa8c16' }}>
                   <EditableCell
                     value={r.ngay ? dayjs(r.ngay).format('DD/MM/YYYY') : ''}
@@ -401,6 +540,9 @@ function ThanhToanSection({ rows, onChange }) {
                 </td>
                 <td style={tdStyle}>
                   <EditableCell value={r.mo_ta} onChange={v => updateRow(r.id, 'mo_ta', v)} />
+                  {committed > 0 && (
+                    <div style={{ fontSize: 11, color: '#888' }}>Đã đối trừ: {formatMoney(committed)}đ</div>
+                  )}
                 </td>
                 <td style={{ ...tdStyle, textAlign: 'right' }}>
                   <EditableCell value={r.so_tien} type="number" onChange={v => updateRow(r.id, 'so_tien', v)} />
@@ -412,7 +554,8 @@ function ThanhToanSection({ rows, onChange }) {
                   />
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {visible.length > 0 && (
               <tr style={{ background: '#fff7e6', borderTop: '1px solid #ffd591' }}>
                 <td colSpan={2} style={{ ...tdStyle, fontWeight: 600 }}>Tổng thanh toán</td>
@@ -515,6 +658,123 @@ function DieuChinhSection({ rows, onChange }) {
               </td>
               <td style={tdStyle}></td>
             </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Section: Gợi ý đối trừ thanh toán (Phase 3) ────────────────────────────
+function DoiTruSection({ draft, onChange }) {
+  const allocations = draft.allocations || [];
+  const [editing, setEditing] = useState(null); // { id, target_type, target_id, amount }
+
+  function regenerate() {
+    onChange(generateAllocationSuggestions(draft));
+  }
+  function setStatus(id, status) {
+    onChange(allocations.map(a => a.id === id ? { ...a, status } : a));
+  }
+  function startManualEdit(a) {
+    setEditing({ id: a.id, target_type: a.target_type, target_id: a.target_id, amount: a.amount });
+  }
+  function saveManualEdit() {
+    if (!editing) return;
+    onChange(allocations.map(a => a.id === editing.id
+      ? { ...a, target_type: editing.target_type, target_id: editing.target_id, amount: Math.round(Number(editing.amount) || 0), status: 'manual' }
+      : a));
+    setEditing(null);
+  }
+
+  const debtOptions = buildDebtQueue(draft).map(d => ({
+    value: `${d.target_type}::${d.target_id}`,
+    label: getDebtLabel(draft, d.target_type, d.target_id),
+  }));
+
+  const statusTag = {
+    suggested: <Tag color="default">Gợi ý</Tag>,
+    accepted:  <Tag color="success">Đã chấp nhận</Tag>,
+    ignored:   <Tag color="default" style={{ opacity: 0.6 }}>Đã bỏ qua</Tag>,
+    manual:    <Tag color="purple">Chỉnh tay</Tag>,
+  };
+  const orderKey = { suggested: 0, manual: 0, accepted: 1, ignored: 2 };
+  const sorted = allocations.slice().sort((a, b) => (orderKey[a.status] ?? 9) - (orderKey[b.status] ?? 9));
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <Typography.Text strong style={{ color: '#13c2c2' }}>🔗 Gợi ý đối trừ thanh toán</Typography.Text>
+        <Button size="small" icon={<ReloadOutlined />} onClick={regenerate}>Tạo gợi ý đối trừ</Button>
+      </div>
+      <div style={{ border: '1px solid #d9d9d9', borderRadius: 6, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#e6fffb' }}>
+              <th style={thStyle}>Khoản thanh toán</th>
+              <th style={thStyle}>Gợi ý cấn vào</th>
+              <th style={{ ...thStyle, width: 130, textAlign: 'right' }}>Số tiền</th>
+              <th style={{ ...thStyle, width: 110 }}>Trạng thái</th>
+              <th style={{ ...thStyle, width: 190 }}>Hành động</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length === 0 && (
+              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 12, color: '#999' }}>
+                Chưa có gợi ý. Nhấn "Tạo gợi ý đối trừ" để hệ thống tự gợi ý cấn trừ theo FIFO.
+              </td></tr>
+            )}
+            {sorted.map(a => {
+              const isEditing = editing && editing.id === a.id;
+              return (
+                <tr key={a.id} style={{ borderBottom: '1px solid #f0f0f0', opacity: a.status === 'ignored' ? 0.55 : 1 }}>
+                  <td style={tdStyle}>{getPaymentLabel(draft, a.payment_id)}</td>
+                  <td style={tdStyle}>
+                    {isEditing
+                      ? <Select
+                          size="small" style={{ width: '100%' }}
+                          value={`${editing.target_type}::${editing.target_id}`}
+                          options={debtOptions}
+                          onChange={v => {
+                            const [target_type, target_id] = v.split('::');
+                            setEditing(e => ({ ...e, target_type, target_id }));
+                          }}
+                        />
+                      : getDebtLabel(draft, a.target_type, a.target_id)}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    {isEditing
+                      ? <InputNumber
+                          size="small" style={{ width: '100%' }} min={0}
+                          value={editing.amount}
+                          formatter={v => formatMoney(Number(v) || 0)}
+                          parser={v => v.replace(/[^0-9]/g, '')}
+                          onChange={v => setEditing(e => ({ ...e, amount: v }))}
+                        />
+                      : <b>{formatMoney(a.amount)}đ</b>}
+                  </td>
+                  <td style={tdStyle}>{statusTag[a.status] || a.status}</td>
+                  <td style={tdStyle}>
+                    {isEditing ? (
+                      <Space size={4}>
+                        <Button size="small" type="primary" onClick={saveManualEdit}>Lưu</Button>
+                        <Button size="small" onClick={() => setEditing(null)}>Huỷ</Button>
+                      </Space>
+                    ) : (
+                      <Space size={4}>
+                        {a.status !== 'accepted' && (
+                          <Button size="small" onClick={() => setStatus(a.id, 'accepted')}>Chấp nhận</Button>
+                        )}
+                        {a.status !== 'ignored' && (
+                          <Button size="small" onClick={() => setStatus(a.id, 'ignored')}>Bỏ qua</Button>
+                        )}
+                        <Button size="small" onClick={() => startManualEdit(a)}>Chỉnh tay</Button>
+                      </Space>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1127,19 +1387,28 @@ export default function BangCongNo() {
       {/* Sections */}
       <DauKySection
         rows={draft.dau_ky_rows}
+        allocations={draft.allocations}
         onChange={rows => setDraft(d => ({ ...d, dau_ky_rows: rows }))}
       />
       <PhatSinhSection
         rows={draft.phat_sinh_rows}
+        allocations={draft.allocations}
         onChange={rows => setDraft(d => ({ ...d, phat_sinh_rows: rows }))}
       />
       <ThanhToanSection
         rows={draft.thanh_toan_rows}
+        allocations={draft.allocations}
         onChange={rows => setDraft(d => ({ ...d, thanh_toan_rows: rows }))}
       />
       <DieuChinhSection
         rows={draft.dieu_chinh_rows}
         onChange={rows => setDraft(d => ({ ...d, dieu_chinh_rows: rows }))}
+      />
+
+      {/* Phase 3: Gợi ý đối trừ thanh toán */}
+      <DoiTruSection
+        draft={draft}
+        onChange={allocations => setDraft(d => ({ ...d, allocations }))}
       />
 
       {/* Reconcile */}
