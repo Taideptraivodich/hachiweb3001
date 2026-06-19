@@ -108,17 +108,6 @@ router.get('/tong-hop', async (req, res) => {
       if (kho) data = data.filter(r => (r.kho || '') === kho);
 
       const danhSachKho = [...new Set(result.recordset.map(r => r.kho).filter(Boolean))].sort();
-
-      // [DEBUG phiên 2026-06-18] log theo mục 6 handover, nhánh MISA online.
-      console.log({
-        route: '/tonkho/tong-hop',
-        from_cache: false,
-        requested_tu_ngay: fromDate,
-        requested_den_ngay: toDate,
-        rows: data.length,
-        firstRow: data[0],
-      });
-
       return res.json({ success: true, data, danhSachKho, total: data.length, from_cache: false });
     } catch (err) {
       console.error('❌ Tồn kho tổng hợp MISA lỗi:', err.message);
@@ -139,33 +128,27 @@ router.get('/tong-hop', async (req, res) => {
       ORDER BY ten_hang
     `, [fromDate, toDate]);
 
-    let usedFrom = fromDate, usedTo = toDate;
-
     if (!rows || rows.length === 0) {
-      // [FIX phiên 2026-06-18] KHÔNG dùng "ORDER BY updated_at DESC LIMIT 5000"
-      // nữa — kiểu cũ trộn nhiều kỳ cache khác nhau vào 1 response, sinh ra
-      // duplicate (ma_hang, kho) thật (đã xác nhận bằng dữ liệu thật: 881 cặp
-      // ma_hang+kho bị lặp tới 4 lần do cache đang giữ 4 kỳ khác nhau). Thay
-      // bằng: lấy NGUYÊN 1 kỳ gần nhất từng được cache (giống cách /chi-tiet
-      // đang làm đúng), rồi nói rõ cho user biết đang xem kỳ nào qua cache_note.
-      const nearest = dbGet(db, `
-        SELECT tu_ngay, den_ngay FROM tonkho_cache
-        ORDER BY updated_at DESC LIMIT 1
-      `);
-      if (nearest) {
-        usedFrom = nearest.tu_ngay;
-        usedTo   = nearest.den_ngay;
-        rows = dbQuery(db, `
-          SELECT ma_hang, ten_hang, kho, dvt,
-                 dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt,
-                 xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt, updated_at
-          FROM tonkho_cache
-          WHERE tu_ngay = ? AND den_ngay = ?
-          ORDER BY ten_hang
-        `, [usedFrom, usedTo]);
-      } else {
-        rows = [];
-      }
+      // Không có cache đúng kỳ user chọn -> lấy snapshot gần nhất, NHƯNG chỉ đúng 1 dòng
+      // mới nhất cho mỗi (ma_hang, kho) — tránh trộn nhiều kỳ lịch sử khác nhau vào cùng 1
+      // response (root cause đã xác nhận bằng screenshot thật: cùng ma_hang+kho xuất hiện
+      // nhiều lần với đầu kỳ/nhập/xuất khác nhau do mỗi lần sync 1 kỳ ngày khác lại ghi
+      // thêm 1 dòng mới, PRIMARY KEY là (ma_hang, kho, tu_ngay, den_ngay)).
+      rows = dbQuery(db, `
+        SELECT t.ma_hang, t.ten_hang, t.kho, t.dvt,
+               t.dau_ky_sl, t.dau_ky_gt, t.nhap_sl, t.nhap_gt,
+               t.xuat_sl, t.xuat_gt, t.cuoi_ky_sl, t.cuoi_ky_gt,
+               t.tu_ngay, t.den_ngay, t.updated_at
+        FROM tonkho_cache t
+        WHERE t.rowid = (
+          SELECT t2.rowid FROM tonkho_cache t2
+          WHERE t2.ma_hang = t.ma_hang AND t2.kho = t.kho
+          ORDER BY t2.updated_at DESC, t2.rowid DESC
+          LIMIT 1
+        )
+        ORDER BY t.ten_hang
+        LIMIT 5000
+      `, []);
     }
     db.close();
 
@@ -182,32 +165,13 @@ router.get('/tong-hop', async (req, res) => {
 
     const danhSachKho = [...new Set(rows.map(r => r.kho).filter(Boolean))].sort();
     const lastSync    = await getLastSync('last_sync_tonkho');
-
-    // [DEBUG phiên 2026-06-18] log đúng theo mục 6 handover để xác nhận khi
-    // test thật: kỳ user chọn vs kỳ thực tế trả về, số dòng. Xoá sau khi xong.
-    console.log({
-      route: '/tonkho/tong-hop',
-      from_cache: true,
-      requested_tu_ngay: fromDate,
-      requested_den_ngay: toDate,
-      used_tu_ngay: usedFrom,
-      used_den_ngay: usedTo,
-      rows: rows.length,
-      firstRow: rows[0],
-    });
-
     return res.json({
       success: true,
       data,
       danhSachKho,
       total: data.length,
       from_cache: true,
-      used_tu_ngay: usedFrom,
-      used_den_ngay: usedTo,
-      cache_note: `⚠️ Dữ liệu offline — lần sync cuối: ${lastSync || 'chưa có'}`
-        + (usedFrom !== fromDate || usedTo !== toDate
-            ? ` (chưa có cache cho kỳ bạn chọn, đang hiển thị kỳ ${usedFrom} → ${usedTo})`
-            : ''),
+      cache_note: `⚠️ Dữ liệu offline — lần sync cuối: ${lastSync || 'chưa có'}`,
     });
   } catch (cacheErr) {
     console.error('❌ Đọc cache tồn kho lỗi:', cacheErr.message);
@@ -219,8 +183,9 @@ router.get('/tong-hop', async (req, res) => {
 // Sổ chi tiết vật tư hàng hóa cho 1 mặt hàng (giống màn hình MISA "Sổ chi tiết VTHH")
 // Trả về: từng dòng nhập/xuất theo ngày, số dư lũy kế
 router.get('/chi-tiet', async (req, res) => {
-  const { ma_hang } = req.query;
+  const { ma_hang, kho } = req.query;
   if (!ma_hang) return res.status(400).json({ success: false, error: 'Thiếu ma_hang' });
+  if (!kho) return res.status(400).json({ success: false, error: 'Thiếu kho' });
 
   const { fromDate, toDate } = parseDates(req.query);
 
@@ -231,6 +196,7 @@ router.get('/chi-tiet', async (req, res) => {
       const misa = await getMisaPool();
       const req1 = misa.request();
       req1.input('ma_hang',  sql.NVarChar, ma_hang);
+      req1.input('kho',      sql.NVarChar, kho);
       req1.input('tu_ngay',  sql.Date, new Date(fromDate));
       req1.input('den_ngay', sql.Date, new Date(toDate));
 
@@ -243,11 +209,13 @@ router.get('/chi-tiet', async (req, res) => {
           ISNULL(SUM(OutwardAmount),   0) AS xuat_gt
         FROM InventoryLedger
         WHERE InventoryItemCode = @ma_hang
+          AND StockName = @kho
           AND PostedDate < @tu_ngay
       `);
 
       const req2 = misa.request();
       req2.input('ma_hang',  sql.NVarChar, ma_hang);
+      req2.input('kho',      sql.NVarChar, kho);
       req2.input('tu_ngay',  sql.Date, new Date(fromDate));
       req2.input('den_ngay', sql.Date, new Date(toDate));
 
@@ -267,6 +235,7 @@ router.get('/chi-tiet', async (req, res) => {
           MAX(il.InventoryItemName)     AS ten_hang
         FROM InventoryLedger il
         WHERE il.InventoryItemCode = @ma_hang
+          AND il.StockName = @kho
           AND il.PostedDate BETWEEN @tu_ngay AND @den_ngay
           AND (il.InwardQuantity <> 0 OR il.OutwardQuantity <> 0)
         GROUP BY
@@ -289,18 +258,7 @@ router.get('/chi-tiet', async (req, res) => {
       });
 
       // Lưu cache chi tiết
-      _updateTonkhoChiTietCache(ma_hang, fromDate, toDate, dauKySL, dauKyGT, dauKyDonGia, rows).catch(() => {});
-
-      // [DEBUG phiên 2026-06-17] log để xác nhận route /chi-tiet có nhận đúng
-      // tu_ngay/den_ngay từ frontend khi MISA online hay không. Xoá sau khi điều tra xong.
-      console.log({
-        route: '/tonkho/chi-tiet',
-        from_cache: false,
-        ma_hang,
-        tu_ngay: fromDate,
-        den_ngay: toDate,
-        rows: rows.length,
-      });
+      _updateTonkhoChiTietCache(ma_hang, kho, fromDate, toDate, dauKySL, dauKyGT, dauKyDonGia, rows).catch(() => {});
 
       return res.json({
         success: true, ma_hang,
@@ -322,13 +280,13 @@ router.get('/chi-tiet', async (req, res) => {
   try {
     const db = await getDb();
 
-    // Tìm đúng kỳ trước, nếu không có thì lấy kỳ gần nhất
+    // Tìm đúng kỳ trước, nếu không có thì lấy kỳ gần nhất (cùng kho)
     const header = dbGet(db, `
       SELECT dau_ky_sl, dau_ky_gt, dau_ky_don_gia, ten_hang, tu_ngay, den_ngay, updated_at
       FROM tonkho_chitiet_cache
-      WHERE ma_hang = ? AND tu_ngay = ? AND den_ngay = ?
+      WHERE ma_hang = ? AND kho = ? AND tu_ngay = ? AND den_ngay = ?
       LIMIT 1
-    `, [ma_hang, fromDate, toDate]);
+    `, [ma_hang, kho, fromDate, toDate]);
 
     let rows = [], usedFrom = fromDate, usedTo = toDate, cachedAt = null, tenHang = ma_hang;
 
@@ -337,19 +295,19 @@ router.get('/chi-tiet', async (req, res) => {
         SELECT ngay_hach_toan, ngay_ct, so_ct, dien_giai, dvt, don_gia,
                nhap_sl, nhap_gt, xuat_sl, xuat_gt, kho, ton_sl, ton_gt
         FROM tonkho_chitiet_cache
-        WHERE ma_hang = ? AND tu_ngay = ? AND den_ngay = ?
+        WHERE ma_hang = ? AND kho = ? AND tu_ngay = ? AND den_ngay = ?
         ORDER BY id ASC
-      `, [ma_hang, fromDate, toDate]);
+      `, [ma_hang, kho, fromDate, toDate]);
       cachedAt = header.updated_at;
       tenHang  = header.ten_hang || ma_hang;
     } else {
       const nearest = dbGet(db, `
         SELECT tu_ngay, den_ngay, dau_ky_sl, dau_ky_gt, dau_ky_don_gia, ten_hang, updated_at
         FROM tonkho_chitiet_cache
-        WHERE ma_hang = ?
+        WHERE ma_hang = ? AND kho = ?
         ORDER BY updated_at DESC
         LIMIT 1
-      `, [ma_hang]);
+      `, [ma_hang, kho]);
 
       if (nearest) {
         usedFrom = nearest.tu_ngay;
@@ -360,9 +318,9 @@ router.get('/chi-tiet', async (req, res) => {
           SELECT ngay_hach_toan, ngay_ct, so_ct, dien_giai, dvt, don_gia,
                  nhap_sl, nhap_gt, xuat_sl, xuat_gt, kho, ton_sl, ton_gt
           FROM tonkho_chitiet_cache
-          WHERE ma_hang = ? AND tu_ngay = ? AND den_ngay = ?
+          WHERE ma_hang = ? AND kho = ? AND tu_ngay = ? AND den_ngay = ?
           ORDER BY id ASC
-        `, [ma_hang, usedFrom, usedTo]);
+        `, [ma_hang, kho, usedFrom, usedTo]);
       }
     }
 
@@ -378,22 +336,6 @@ router.get('/chi-tiet', async (req, res) => {
     }
 
     const h = header || { dau_ky_sl: 0, dau_ky_gt: 0, dau_ky_don_gia: 0 };
-
-    // [DEBUG phiên 2026-06-17] log để xác nhận khi MISA offline, route /chi-tiet
-    // có đang trả đúng kỳ user chọn (fromDate/toDate) hay đang lùi về kỳ cache
-    // gần nhất (usedFrom/usedTo khác fromDate/toDate). Xoá sau khi điều tra xong.
-    console.log({
-      route: '/tonkho/chi-tiet',
-      from_cache: true,
-      ma_hang,
-      tu_ngay_user_chon: fromDate,
-      den_ngay_user_chon: toDate,
-      header_matched_dung_ky: !!header,
-      tu_ngay_thuc_te: usedFrom,
-      den_ngay_thuc_te: usedTo,
-      rows: rows.length,
-    });
-
     return res.json({
       success: true,
       ma_hang,
@@ -451,37 +393,37 @@ async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
 }
 
 // ─── Helper: cập nhật cache tồn kho chi tiết ─────────────────────────────────
-async function _updateTonkhoChiTietCache(ma_hang, tu_ngay, den_ngay, dau_ky_sl, dau_ky_gt, dau_ky_don_gia, rows) {
+async function _updateTonkhoChiTietCache(ma_hang, kho, tu_ngay, den_ngay, dau_ky_sl, dau_ky_gt, dau_ky_don_gia, rows) {
   const db  = await getDb();
   const now = new Date().toLocaleString('vi-VN');
 
-  db.run(`DELETE FROM tonkho_chitiet_cache WHERE ma_hang = ? AND tu_ngay = ? AND den_ngay = ?`,
-    [ma_hang, tu_ngay, den_ngay]);
+  // Chỉ xoá cache của ĐÚNG kho + đúng kỳ — tránh xoá nhầm cache của kho khác cùng mã hàng/kỳ
+  db.run(`DELETE FROM tonkho_chitiet_cache WHERE ma_hang = ? AND kho = ? AND tu_ngay = ? AND den_ngay = ?`,
+    [ma_hang, kho, tu_ngay, den_ngay]);
 
   if (rows.length === 0) {
-    // Không có dòng phát sinh — vẫn lưu 1 dòng header để giữ đầu kỳ + đơn giá
+    // Không có dòng phát sinh — vẫn lưu 1 dòng header để giữ đầu kỳ + đơn giá, gắn đúng kho
     db.run(`
       INSERT INTO tonkho_chitiet_cache
-        (ma_hang, tu_ngay, den_ngay, ten_hang, dau_ky_sl, dau_ky_gt, dau_ky_don_gia, updated_at)
-      VALUES (?,?,?,?,?,?,?,?)
-    `, [ma_hang, tu_ngay, den_ngay, '', dau_ky_sl, dau_ky_gt, dau_ky_don_gia, now]);
+        (ma_hang, kho, tu_ngay, den_ngay, ten_hang, dau_ky_sl, dau_ky_gt, dau_ky_don_gia, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `, [ma_hang, kho, tu_ngay, den_ngay, '', dau_ky_sl, dau_ky_gt, dau_ky_don_gia, now]);
   } else {
     for (const r of rows) {
       db.run(`
         INSERT INTO tonkho_chitiet_cache
-          (ma_hang, tu_ngay, den_ngay, ten_hang, dau_ky_sl, dau_ky_gt, dau_ky_don_gia,
+          (ma_hang, kho, tu_ngay, den_ngay, ten_hang, dau_ky_sl, dau_ky_gt, dau_ky_don_gia,
            ngay_hach_toan, ngay_ct, so_ct, dien_giai, dvt, don_gia,
-           nhap_sl, nhap_gt, xuat_sl, xuat_gt, kho, ton_sl, ton_gt, updated_at)
+           nhap_sl, nhap_gt, xuat_sl, xuat_gt, ton_sl, ton_gt, updated_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `, [
-        ma_hang, tu_ngay, den_ngay, r.ten_hang || '', dau_ky_sl, dau_ky_gt, dau_ky_don_gia,
+        ma_hang, kho, tu_ngay, den_ngay, r.ten_hang || '', dau_ky_sl, dau_ky_gt, dau_ky_don_gia,
         r.ngay_hach_toan ? new Date(r.ngay_hach_toan).toISOString().slice(0, 10) : null,
         r.ngay_ct        ? new Date(r.ngay_ct).toISOString().slice(0, 10)        : null,
         r.so_ct || '', r.dien_giai || '', r.dvt || '',
         r.don_gia || 0,
         r.nhap_sl || 0, r.nhap_gt || 0,
         r.xuat_sl || 0, r.xuat_gt || 0,
-        r.kho || '',
         r.ton_sl || 0, r.ton_gt || 0,
         now,
       ]);
