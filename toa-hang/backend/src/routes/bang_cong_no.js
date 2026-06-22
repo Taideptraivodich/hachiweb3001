@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb, saveDb, dbQuery, dbGet, dbRun } = require('../sqlite');
+const { buildBangCongNoWorkbook } = require('../services/export_bang_cong_no');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function calcSummary(draft) {
@@ -167,6 +168,29 @@ router.put('/:id', async (req, res) => {
     return res.json({ success: true });
   } catch (err) {
     console.error('❌ PUT /bang-cong-no/:id:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── GET /bang-cong-no/:id/export ── Export Excel gửi khách ────────────────
+router.get('/:id/export', async (req, res) => {
+  try {
+    const db  = await getDb();
+    const row = dbGet(db, 'SELECT * FROM bang_cong_no_draft WHERE id = ?', [req.params.id]);
+    db.close();
+    if (!row) return res.status(404).json({ success: false, error: 'Không tìm thấy' });
+
+    const wb = buildBangCongNoWorkbook(row);
+    const buffer = await wb.xlsx.writeBuffer();
+
+    const safeName = (row.ten_kh || 'bang-cong-no').replace(/[\\/:*?"<>|]/g, '').trim() || 'bang-cong-no';
+    const fileName = `${safeName} - ${row.tieu_de || ''}`.trim().replace(/\s+/g, ' ') + '.xlsx';
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error('❌ GET /bang-cong-no/:id/export:', err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });

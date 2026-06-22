@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
+import html2canvas from 'html2canvas';
 import {
   Button, Select, DatePicker, Input, InputNumber, Space, Tag, Tooltip,
   message, Spin, Modal, Popconfirm, Empty, Badge, Alert, Divider, Typography,
@@ -9,6 +10,7 @@ import {
   UploadOutlined, SaveOutlined, FolderOpenOutlined, PlusOutlined,
   DeleteOutlined, EditOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   CloseCircleOutlined, ReloadOutlined, FileExcelOutlined, HistoryOutlined,
+  CameraOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
@@ -81,6 +83,59 @@ function calcSummaryFromDraft(draft) {
   const cuoi_ky_app = dau_ky + tong_ps + tong_dieu_chinh_tang - tong_tt - tong_dieu_chinh_giam;
   return { dau_ky, tong_ps, tong_tt, tong_dieu_chinh_tang, tong_dieu_chinh_giam, cuoi_ky_app };
 }
+
+// Build dữ liệu preview cho bảng gửi khách — cùng logic nhóm-theo-ngày/subtotal/tổng
+// với backend (export_bang_cong_no.js) để ảnh chụp Zalo và file Excel khớp nhau.
+function buildPreviewData(draft, meta) {
+  const phatSinh = (draft.phat_sinh_rows || []).filter(r => !r.deleted && r.export_visible !== false);
+  const dauKy    = (draft.dau_ky_rows || []).filter(r => !r.deleted && Math.round(Number(r.so_tien) || 0) !== 0);
+  const thanhToan = (draft.thanh_toan_rows || []).filter(r => !r.deleted && Math.round(Number(r.so_tien) || 0) !== 0);
+  const dieuChinh = (draft.dieu_chinh_rows || []).filter(r => !r.deleted && Math.round(Number(r.so_tien) || 0) !== 0);
+
+  const byDate = {};
+  const order = [];
+  phatSinh.forEach(r => {
+    const key = r.ngay || '';
+    if (!byDate[key]) { byDate[key] = []; order.push(key); }
+    byDate[key].push(r);
+  });
+  order.sort((a, b) => a.localeCompare(b));
+
+  const groups = order.map(date => {
+    const rows = byDate[date];
+    const subtotal = rows.reduce((s, r) => s + Math.round(Number(r.sl) || 0) * Math.round(Number(r.don_gia) || 0), 0);
+    return { date, rows, subtotal };
+  });
+
+  const tongPhatSinh = groups.reduce((s, g) => s + g.subtotal, 0);
+
+  const summaryLines = [];
+  dauKy.forEach(r => summaryLines.push({ label: r.mo_ta || 'Công nợ kỳ trước mang sang', amount: Math.round(Number(r.so_tien) || 0), sign: 1 }));
+  thanhToan.forEach(r => summaryLines.push({
+    label: r.ngay ? `Thanh toán ngày ${dayjs(r.ngay).format('DD/MM/YYYY')}` : (r.mo_ta || 'Thanh toán'),
+    amount: Math.round(Number(r.so_tien) || 0), sign: -1,
+  }));
+  dieuChinh.forEach(r => {
+    const isTang = r.direction === 'tang';
+    summaryLines.push({
+      label: `${isTang ? 'Điều chỉnh tăng' : 'Điều chỉnh giảm'}${r.mo_ta ? ' — ' + r.mo_ta : ''}`,
+      amount: Math.round(Number(r.so_tien) || 0), sign: isTang ? 1 : -1,
+    });
+  });
+
+  const congNoConPhaiThanhToan = tongPhatSinh + summaryLines.reduce((s, l) => s + l.sign * l.amount, 0);
+
+  return {
+    tieuDe: meta.tieu_de || meta.ten_kh || 'BẢNG CÔNG NỢ',
+    denNgay: meta.den_ngay || '',
+    groups,
+    tongPhatSinh,
+    summaryLines,
+    congNoConPhaiThanhToan,
+  };
+}
+
+
 
 // ─── Phase 3: Gợi ý đối trừ thanh toán ──────────────────────────────────────
 // Danh sách khoản nợ theo thứ tự ưu tiên FIFO: đầu kỳ → phát sinh (ngày tăng dần) → điều chỉnh tăng (ngày tăng dần)
@@ -782,6 +837,84 @@ function DoiTruSection({ draft, onChange }) {
   );
 }
 
+// ─── Preview: Bảng gửi khách (dùng để chụp ảnh / copy clipboard Zalo) ───────
+// Render giống layout file Excel export. Component này được mount luôn trong
+// DOM (vị trí cố định ngoài màn hình) để html2canvas có thể chụp bất kỳ lúc nào,
+// không cần mở modal.
+const PreviewKhachHang = React.forwardRef(function PreviewKhachHang({ draft, meta }, ref) {
+  const data = buildPreviewData(draft, meta);
+  const cellStyle = { border: '1px solid #000', padding: '4px 6px', fontFamily: 'Times New Roman, serif' };
+  const labelRowStyle = { ...cellStyle, textAlign: 'right', fontFamily: 'Times New Roman, serif' };
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed', left: -99999, top: 0, width: 760,
+        background: '#fff', padding: 16, fontFamily: 'Times New Roman, serif',
+      }}
+    >
+      <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: 22, marginBottom: 10 }}>
+        {data.tieuDe}
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr>
+            <th style={{ ...cellStyle, fontWeight: 'bold' }}>NGÀY</th>
+            <th style={{ ...cellStyle, fontWeight: 'bold' }}>MÃ SP</th>
+            <th style={{ ...cellStyle, fontWeight: 'bold' }}>TÊN SẢN PHẨM</th>
+            <th style={{ ...cellStyle, fontWeight: 'bold' }}>ĐVT</th>
+            <th style={{ ...cellStyle, fontWeight: 'bold', textAlign: 'right' }}>SL</th>
+            <th style={{ ...cellStyle, fontWeight: 'bold', textAlign: 'right' }}>ĐƠN GIÁ</th>
+            <th style={{ ...cellStyle, fontWeight: 'bold', textAlign: 'right' }}>THÀNH TIỀN</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.groups.length === 0 && (
+            <tr><td colSpan={7} style={{ ...cellStyle, textAlign: 'center', color: '#999' }}>Chưa có phát sinh</td></tr>
+          )}
+          {data.groups.map((g, gi) => (
+            <React.Fragment key={g.date + gi}>
+              {g.rows.map((r, idx) => (
+                <tr key={r.id}>
+                  <td style={cellStyle}>{idx === 0 && g.date ? dayjs(g.date).format('DD/MM/YYYY') : ''}</td>
+                  <td style={cellStyle}>{r.ma_sp}</td>
+                  <td style={cellStyle}>{r.ten_sp}</td>
+                  <td style={{ ...cellStyle, textAlign: 'center' }}>{r.dvt}</td>
+                  <td style={{ ...cellStyle, textAlign: 'right' }}>{r.sl}</td>
+                  <td style={{ ...cellStyle, textAlign: 'right' }}>{formatMoney(r.don_gia)}</td>
+                  <td style={{ ...cellStyle, textAlign: 'right' }}>{formatMoney(Math.round(Number(r.sl) || 0) * Math.round(Number(r.don_gia) || 0))}</td>
+                </tr>
+              ))}
+              <tr style={{ borderTop: '2px solid #000', borderBottom: '2px solid #000' }}>
+                <td style={cellStyle}></td><td style={cellStyle}></td><td style={cellStyle}></td>
+                <td style={cellStyle}></td><td style={cellStyle}></td><td style={cellStyle}></td>
+                <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 600 }}>{formatMoney(g.subtotal)}</td>
+              </tr>
+            </React.Fragment>
+          ))}
+          <tr>
+            <td style={{ ...labelRowStyle, fontWeight: 'bold' }} colSpan={6}>TỔNG</td>
+            <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 'bold' }}>{formatMoney(data.tongPhatSinh)}</td>
+          </tr>
+          {data.summaryLines.map((l, i) => (
+            <tr key={i}>
+              <td style={labelRowStyle} colSpan={6}>{l.label}</td>
+              <td style={{ ...cellStyle, textAlign: 'right' }}>{formatMoney(l.amount)}</td>
+            </tr>
+          ))}
+          <tr style={{ background: '#ffe699' }}>
+            <td style={{ ...labelRowStyle, fontWeight: 'bold' }} colSpan={6}>
+              CÔNG NỢ CÒN PHẢI THANH TOÁN{data.denNgay ? ` ĐẾN ${dayjs(data.denNgay).format('DD/MM/YYYY')}` : ''}
+            </td>
+            <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 'bold' }}>{formatMoney(data.congNoConPhaiThanhToan)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+});
+
 // ─── Modal: Danh sách draft đã lưu ──────────────────────────────────────────
 function DraftListModal({ open, onClose, onLoad }) {
   const [drafts, setDrafts] = useState([]);
@@ -1171,8 +1304,10 @@ export default function BangCongNo() {
   }
 
   // ─── Lưu draft ────────────────────────────────────────────────────────────
+  // Trả về id của draft (vừa tạo hoặc đã có) để các luồng export/copy ảnh
+  // có thể gọi ngay sau khi lưu mà không cần chờ setState re-render.
   async function saveDraft() {
-    if (!meta.ten_kh) { message.warning('Chưa có tên khách hàng'); return; }
+    if (!meta.ten_kh) { message.warning('Chưa có tên khách hàng'); return null; }
     setSaving(true);
     try {
       const payload = {
@@ -1188,17 +1323,104 @@ export default function BangCongNo() {
       if (draftId) {
         await api.put(`/bang-cong-no/${draftId}`, payload);
         message.success('Đã cập nhật bản nháp');
+        return draftId;
       } else {
         const r = await api.post('/bang-cong-no', payload);
         setDraftId(r.data.id);
         message.success('Đã lưu bản nháp');
+        return r.data.id;
       }
     } catch (err) {
       message.error('Lỗi lưu: ' + err.message);
+      return null;
     } finally {
       setSaving(false);
     }
   }
+
+  // Đảm bảo draft đã có id trước khi gọi các API cần draft id (export...)
+  async function ensureSaved() {
+    if (draftId) return draftId;
+    return await saveDraft();
+  }
+
+  // ─── Export Excel gửi khách ─────────────────────────────────────────────
+  const [exporting, setExporting] = useState(false);
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const id = await ensureSaved();
+      if (!id) return;
+      const res = await api.get(`/bang-cong-no/${id}/export`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${meta.ten_kh || 'bang-cong-no'} - ${meta.tieu_de || ''}`.trim().replace(/\s+/g, ' ') + '.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      message.success('Đã tải file Excel gửi khách');
+    } catch (err) {
+      message.error('Lỗi export Excel: ' + (err?.response?.data?.error || err.message));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // ─── Copy ảnh / tải PNG (chụp vùng preview gửi khách) ───────────────────
+  const previewRef = useRef(null);
+  const [capturing, setCapturing] = useState(false);
+
+  async function capturePreviewCanvas() {
+    if (!previewRef.current) throw new Error('Chưa có vùng preview');
+    return html2canvas(previewRef.current, { scale: 2, backgroundColor: '#ffffff' });
+  }
+
+  async function copyImageToClipboard() {
+    setCapturing(true);
+    try {
+      const canvas = await capturePreviewCanvas();
+      await new Promise((resolve, reject) => {
+        canvas.toBlob(async (blob) => {
+          if (!blob) { reject(new Error('Không tạo được ảnh')); return; }
+          try {
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            message.success('Đã copy ảnh — dán vào Zalo để gửi khách');
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        }, 'image/png');
+      });
+    } catch (err) {
+      message.warning('Không copy được ảnh, đang tải PNG thay thế...');
+      await downloadImagePng();
+    } finally {
+      setCapturing(false);
+    }
+  }
+
+  async function downloadImagePng() {
+    setCapturing(true);
+    try {
+      const canvas = await capturePreviewCanvas();
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${meta.ten_kh || 'bang-cong-no'} - ${meta.tieu_de || ''}`.trim().replace(/\s+/g, ' ') + '.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      message.success('Đã tải ảnh PNG');
+    } catch (err) {
+      message.error('Lỗi tạo ảnh: ' + err.message);
+    } finally {
+      setCapturing(false);
+    }
+  }
+
 
   const summary = calcSummaryFromDraft(draft);
 
@@ -1338,6 +1560,19 @@ export default function BangCongNo() {
             loading={saving} onClick={saveDraft}>
             {draftId ? 'Cập nhật nháp' : 'Lưu nháp'}
           </Button>
+          <Divider type="vertical" style={{ margin: '0 4px' }} />
+          <Button size="small" icon={<FileExcelOutlined />} loading={exporting}
+            onClick={exportExcel} title="Tải file Excel gửi khách theo form mẫu">
+            Export Excel
+          </Button>
+          <Button size="small" icon={<CameraOutlined />} loading={capturing}
+            onClick={copyImageToClipboard} title="Chụp bảng gửi khách và copy vào clipboard để dán Zalo">
+            Copy ảnh gửi Zalo
+          </Button>
+          <Button size="small" icon={<DownloadOutlined />} loading={capturing}
+            onClick={downloadImagePng} title="Tải ảnh PNG bảng gửi khách">
+            Tải PNG
+          </Button>
         </Space>
       </div>
 
@@ -1419,6 +1654,7 @@ export default function BangCongNo() {
       />
 
       <DraftListModal open={showHistory} onClose={() => setShowHistory(false)} onLoad={loadDraft} />
+      <PreviewKhachHang ref={previewRef} draft={draft} meta={meta} />
     </div>
   );
 }
