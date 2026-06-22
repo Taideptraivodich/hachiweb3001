@@ -11,6 +11,36 @@ function fmtDateVN(d) {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+// "Công nợ tháng X mang sang" — tính theo tháng TRƯỚC tháng bắt đầu của kỳ.
+// Không bao giờ ghi nguồn nội bộ (MISA...) ra file gửi khách.
+function getDauKyLabel(tuNgay) {
+  const m = tuNgay ? String(tuNgay).match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+  if (!m) return 'Công nợ kỳ trước mang sang';
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  let prevMonth = month - 1;
+  let prevYear = year;
+  if (prevMonth === 0) { prevMonth = 12; prevYear = year - 1; }
+  return prevYear !== year
+    ? `Công nợ tháng ${prevMonth}/${prevYear} mang sang`
+    : `Công nợ tháng ${prevMonth} mang sang`;
+}
+
+// ─── Đối trừ (allocations) ──────────────────────────────────────────────────
+// Chỉ allocation status = accepted hoặc manual mới được áp dụng vào export.
+// suggested/ignored KHÔNG ảnh hưởng số liệu hiển thị cho khách.
+function getCommittedForTarget(allocations, target_type, target_id) {
+  return (allocations || [])
+    .filter(a => (a.status === 'accepted' || a.status === 'manual')
+      && a.target_type === target_type && a.target_id === target_id)
+    .reduce((s, a) => s + round(a.amount), 0);
+}
+function getCommittedForPayment(allocations, payment_id) {
+  return (allocations || [])
+    .filter(a => (a.status === 'accepted' || a.status === 'manual') && a.payment_id === payment_id)
+    .reduce((s, a) => s + round(a.amount), 0);
+}
+
 const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']; // NGÀY,MÃ SP,TÊN SP,ĐVT,SL,ĐƠN GIÁ,THÀNH TIỀN
 const THIN = { style: 'thin', color: { argb: 'FF000000' } };
 const MEDIUM = { style: 'medium', color: { argb: 'FF000000' } };
@@ -38,11 +68,53 @@ function buildBangCongNoWorkbook(draftRow) {
     : (draftRow.draft_json || {});
 
   const tieuDe = draftRow.tieu_de || draft?.meta?.title || draftRow.ten_kh || 'BẢNG CÔNG NỢ';
+  const allocations = draft.allocations || [];
+  const tuNgay = draftRow.tu_ngay || draft?.meta?.tu_ngay;
 
-  const dauKyRows    = (draft.dau_ky_rows || []).filter(r => !r.deleted && round(r.so_tien) !== 0);
-  const phatSinhRows = (draft.phat_sinh_rows || []).filter(r => !r.deleted && r.export_visible !== false);
-  const thanhToanRows = (draft.thanh_toan_rows || []).filter(r => !r.deleted && round(r.so_tien) !== 0);
-  const dieuChinhRows = (draft.dieu_chinh_rows || []).filter(r => !r.deleted && round(r.so_tien) !== 0);
+  // ── Áp đối trừ (chỉ accepted/manual) lên từng nguồn khoản nợ/thanh toán ───
+  // Đầu kỳ: ẩn nếu đã đối trừ hết, hiện phần còn lại nếu đối trừ 1 phần.
+  const dauKyRows = (draft.dau_ky_rows || [])
+    .filter(r => !r.deleted)
+    .map(r => {
+      const original = round(r.so_tien);
+      const committed = getCommittedForTarget(allocations, 'dau_ky', r.id);
+      return { ...r, _remaining: Math.max(0, original - committed) };
+    })
+    .filter(r => r._remaining > 0);
+
+  // Phát sinh: ẩn dòng đã đối trừ hết, THÀNH TIỀN = phần còn lại nếu đối trừ 1 phần.
+  const phatSinhRows = (draft.phat_sinh_rows || [])
+    .filter(r => !r.deleted && r.export_visible !== false)
+    .map(r => {
+      const original = round(r.sl) * round(r.don_gia);
+      const committed = getCommittedForTarget(allocations, 'phat_sinh', r.id);
+      return { ...r, _remaining: Math.max(0, original - committed) };
+    })
+    .filter(r => r._remaining > 0);
+
+  // Thanh toán: chỉ hiện phần CÒN DƯ chưa dùng để đối trừ.
+  const thanhToanRows = (draft.thanh_toan_rows || [])
+    .filter(r => !r.deleted)
+    .map(r => {
+      const original = round(r.so_tien);
+      const committed = getCommittedForPayment(allocations, r.id);
+      return { ...r, _remaining: Math.max(0, original - committed) };
+    })
+    .filter(r => r._remaining > 0);
+
+  // Điều chỉnh tăng: tham gia đối trừ giống khoản nợ khác.
+  // Điều chỉnh giảm: không tham gia đối trừ, giữ nguyên.
+  const dieuChinhRows = (draft.dieu_chinh_rows || [])
+    .filter(r => !r.deleted)
+    .map(r => {
+      const original = round(r.so_tien);
+      if (r.direction === 'tang') {
+        const committed = getCommittedForTarget(allocations, 'dieu_chinh', r.id);
+        return { ...r, _remaining: Math.max(0, original - committed) };
+      }
+      return { ...r, _remaining: original };
+    })
+    .filter(r => r._remaining > 0);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Bảng CN', { properties: { defaultRowHeight: 16 } });
@@ -107,7 +179,8 @@ function buildBangCongNoWorkbook(draftRow) {
       xr.getCell('E').value = round(row.sl);
       xr.getCell('F').value = round(row.don_gia);
       xr.getCell('F').numFmt = MONEY_FMT;
-      xr.getCell('G').value = { formula: `E${r}*F${r}` };
+      // THÀNH TIỀN = phần còn lại sau đối trừ (có thể khác SL*ĐƠN GIÁ nếu đã đối trừ 1 phần)
+      xr.getCell('G').value = row._remaining;
       xr.getCell('G').numFmt = MONEY_FMT;
 
       xr.font = FONT_DATA;
@@ -120,13 +193,13 @@ function buildBangCongNoWorkbook(draftRow) {
       r++;
     });
 
-    // Subtotal row (chỉ có giá trị ở cột G)
+    // Subtotal row (chỉ có giá trị ở cột G). Border đậm CHỈ ở dưới, không ở trên.
     const subtotalRow = ws.getRow(r);
     subtotalRow.getCell('G').value = { formula: `SUM(G${groupStartRow}:G${r - 1})` };
     subtotalRow.getCell('G').numFmt = MONEY_FMT;
     subtotalRow.getCell('G').font = FONT_DATA_B;
     subtotalRow.getCell('G').alignment = { horizontal: 'right' };
-    setBorder(subtotalRow, { top: MEDIUM, bottom: MEDIUM });
+    setBorder(subtotalRow, { top: THIN, bottom: MEDIUM });
     subtotalCells.push(`G${r}`);
     r++;
   });
@@ -153,7 +226,7 @@ function buildBangCongNoWorkbook(draftRow) {
   const tongRowNum = r;
   r++;
 
-  // ── Đầu kỳ / Thanh toán / Điều chỉnh ─────────────────────────────────────
+  // ── Đầu kỳ / Thanh toán / Điều chỉnh (đã áp đối trừ) ─────────────────────
   const summaryRefs = { plus: [`G${tongRowNum}`], minus: [] };
 
   function addSummaryLine(label) {
@@ -170,15 +243,15 @@ function buildBangCongNoWorkbook(draftRow) {
   }
 
   dauKyRows.forEach(row => {
-    const cellRef = addSummaryLine(row.mo_ta || 'Công nợ kỳ trước mang sang');
-    ws.getCell(cellRef).value = round(row.so_tien);
+    const cellRef = addSummaryLine(getDauKyLabel(tuNgay));
+    ws.getCell(cellRef).value = row._remaining;
     summaryRefs.plus.push(cellRef);
   });
 
   thanhToanRows.forEach(row => {
     const label = row.ngay ? `Thanh toán ngày ${fmtDateVN(row.ngay)}` : (row.mo_ta || 'Thanh toán');
     const cellRef = addSummaryLine(label);
-    ws.getCell(cellRef).value = round(row.so_tien);
+    ws.getCell(cellRef).value = row._remaining;
     summaryRefs.minus.push(cellRef);
   });
 
@@ -186,7 +259,7 @@ function buildBangCongNoWorkbook(draftRow) {
     const isTang = row.direction === 'tang';
     const label = `${isTang ? 'Điều chỉnh tăng' : 'Điều chỉnh giảm'}${row.mo_ta ? ' — ' + row.mo_ta : ''}${row.ngay ? ' ' + fmtDateVN(row.ngay) : ''}`;
     const cellRef = addSummaryLine(label);
-    ws.getCell(cellRef).value = round(row.so_tien);
+    ws.getCell(cellRef).value = row._remaining;
     if (isTang) summaryRefs.plus.push(cellRef); else summaryRefs.minus.push(cellRef);
   });
 
@@ -213,4 +286,4 @@ function buildBangCongNoWorkbook(draftRow) {
   return wb;
 }
 
-module.exports = { buildBangCongNoWorkbook };
+module.exports = { buildBangCongNoWorkbook, getDauKyLabel };

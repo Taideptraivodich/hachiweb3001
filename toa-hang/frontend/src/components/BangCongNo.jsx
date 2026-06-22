@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import {
   Button, Select, DatePicker, Input, InputNumber, Space, Tag, Tooltip,
   message, Spin, Modal, Popconfirm, Empty, Badge, Alert, Divider, Typography,
@@ -84,13 +84,73 @@ function calcSummaryFromDraft(draft) {
   return { dau_ky, tong_ps, tong_tt, tong_dieu_chinh_tang, tong_dieu_chinh_giam, cuoi_ky_app };
 }
 
+// "Công nợ tháng X mang sang" — tính theo tháng TRƯỚC tháng bắt đầu của kỳ.
+// PHẢI khớp 100% với hàm getDauKyLabel ở backend (export_bang_cong_no.js).
+function getDauKyLabel(tuNgay) {
+  const m = tuNgay ? String(tuNgay).match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+  if (!m) return 'Công nợ kỳ trước mang sang';
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  let prevMonth = month - 1;
+  let prevYear = year;
+  if (prevMonth === 0) { prevMonth = 12; prevYear = year - 1; }
+  return prevYear !== year
+    ? `Công nợ tháng ${prevMonth}/${prevYear} mang sang`
+    : `Công nợ tháng ${prevMonth} mang sang`;
+}
+
 // Build dữ liệu preview cho bảng gửi khách — cùng logic nhóm-theo-ngày/subtotal/tổng
-// với backend (export_bang_cong_no.js) để ảnh chụp Zalo và file Excel khớp nhau.
+// VÀ cùng logic áp đối trừ (accepted/manual) với backend (export_bang_cong_no.js)
+// để ảnh chụp Zalo và file Excel khớp nhau.
 function buildPreviewData(draft, meta) {
-  const phatSinh = (draft.phat_sinh_rows || []).filter(r => !r.deleted && r.export_visible !== false);
-  const dauKy    = (draft.dau_ky_rows || []).filter(r => !r.deleted && Math.round(Number(r.so_tien) || 0) !== 0);
-  const thanhToan = (draft.thanh_toan_rows || []).filter(r => !r.deleted && Math.round(Number(r.so_tien) || 0) !== 0);
-  const dieuChinh = (draft.dieu_chinh_rows || []).filter(r => !r.deleted && Math.round(Number(r.so_tien) || 0) !== 0);
+  const allocations = draft.allocations || [];
+  const tuNgay = meta.tu_ngay || draft?.meta?.tu_ngay;
+
+  const committedForTarget = (type, id) => allocations
+    .filter(a => (a.status === 'accepted' || a.status === 'manual') && a.target_type === type && a.target_id === id)
+    .reduce((s, a) => s + Math.round(Number(a.amount) || 0), 0);
+  const committedForPayment = (paymentId) => allocations
+    .filter(a => (a.status === 'accepted' || a.status === 'manual') && a.payment_id === paymentId)
+    .reduce((s, a) => s + Math.round(Number(a.amount) || 0), 0);
+
+  const phatSinh = (draft.phat_sinh_rows || [])
+    .filter(r => !r.deleted && r.export_visible !== false)
+    .map(r => {
+      const original = Math.round(Number(r.sl) || 0) * Math.round(Number(r.don_gia) || 0);
+      const remaining = Math.max(0, original - committedForTarget('phat_sinh', r.id));
+      return { ...r, _remaining: remaining };
+    })
+    .filter(r => r._remaining > 0);
+
+  const dauKy = (draft.dau_ky_rows || [])
+    .filter(r => !r.deleted)
+    .map(r => {
+      const original = Math.round(Number(r.so_tien) || 0);
+      const remaining = Math.max(0, original - committedForTarget('dau_ky', r.id));
+      return { ...r, _remaining: remaining };
+    })
+    .filter(r => r._remaining > 0);
+
+  const thanhToan = (draft.thanh_toan_rows || [])
+    .filter(r => !r.deleted)
+    .map(r => {
+      const original = Math.round(Number(r.so_tien) || 0);
+      const remaining = Math.max(0, original - committedForPayment(r.id));
+      return { ...r, _remaining: remaining };
+    })
+    .filter(r => r._remaining > 0);
+
+  const dieuChinh = (draft.dieu_chinh_rows || [])
+    .filter(r => !r.deleted)
+    .map(r => {
+      const original = Math.round(Number(r.so_tien) || 0);
+      if (r.direction === 'tang') {
+        const remaining = Math.max(0, original - committedForTarget('dieu_chinh', r.id));
+        return { ...r, _remaining: remaining };
+      }
+      return { ...r, _remaining: original };
+    })
+    .filter(r => r._remaining > 0);
 
   const byDate = {};
   const order = [];
@@ -103,23 +163,23 @@ function buildPreviewData(draft, meta) {
 
   const groups = order.map(date => {
     const rows = byDate[date];
-    const subtotal = rows.reduce((s, r) => s + Math.round(Number(r.sl) || 0) * Math.round(Number(r.don_gia) || 0), 0);
+    const subtotal = rows.reduce((s, r) => s + r._remaining, 0);
     return { date, rows, subtotal };
   });
 
   const tongPhatSinh = groups.reduce((s, g) => s + g.subtotal, 0);
 
   const summaryLines = [];
-  dauKy.forEach(r => summaryLines.push({ label: r.mo_ta || 'Công nợ kỳ trước mang sang', amount: Math.round(Number(r.so_tien) || 0), sign: 1 }));
+  dauKy.forEach(r => summaryLines.push({ label: getDauKyLabel(tuNgay), amount: r._remaining, sign: 1 }));
   thanhToan.forEach(r => summaryLines.push({
     label: r.ngay ? `Thanh toán ngày ${dayjs(r.ngay).format('DD/MM/YYYY')}` : (r.mo_ta || 'Thanh toán'),
-    amount: Math.round(Number(r.so_tien) || 0), sign: -1,
+    amount: r._remaining, sign: -1,
   }));
   dieuChinh.forEach(r => {
     const isTang = r.direction === 'tang';
     summaryLines.push({
       label: `${isTang ? 'Điều chỉnh tăng' : 'Điều chỉnh giảm'}${r.mo_ta ? ' — ' + r.mo_ta : ''}`,
-      amount: Math.round(Number(r.so_tien) || 0), sign: isTang ? 1 : -1,
+      amount: r._remaining, sign: isTang ? 1 : -1,
     });
   });
 
@@ -849,9 +909,11 @@ const PreviewKhachHang = React.forwardRef(function PreviewKhachHang({ draft, met
   return (
     <div
       ref={ref}
+      data-export-preview="bang-cong-no"
       style={{
         position: 'fixed', left: -99999, top: 0, width: 760,
-        background: '#fff', padding: 16, fontFamily: 'Times New Roman, serif',
+        backgroundColor: '#ffffff', color: '#000000', padding: 16,
+        fontFamily: 'Times New Roman, serif',
       }}
     >
       <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: 22, marginBottom: 10 }}>
@@ -883,10 +945,10 @@ const PreviewKhachHang = React.forwardRef(function PreviewKhachHang({ draft, met
                   <td style={{ ...cellStyle, textAlign: 'center' }}>{r.dvt}</td>
                   <td style={{ ...cellStyle, textAlign: 'right' }}>{r.sl}</td>
                   <td style={{ ...cellStyle, textAlign: 'right' }}>{formatMoney(r.don_gia)}</td>
-                  <td style={{ ...cellStyle, textAlign: 'right' }}>{formatMoney(Math.round(Number(r.sl) || 0) * Math.round(Number(r.don_gia) || 0))}</td>
+                  <td style={{ ...cellStyle, textAlign: 'right' }}>{formatMoney(r._remaining)}</td>
                 </tr>
               ))}
-              <tr style={{ borderTop: '2px solid #000', borderBottom: '2px solid #000' }}>
+              <tr style={{ borderBottom: '2px solid #000' }}>
                 <td style={cellStyle}></td><td style={cellStyle}></td><td style={cellStyle}></td>
                 <td style={cellStyle}></td><td style={cellStyle}></td><td style={cellStyle}></td>
                 <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 600 }}>{formatMoney(g.subtotal)}</td>
@@ -1375,7 +1437,20 @@ export default function BangCongNo() {
 
   async function capturePreviewCanvas() {
     if (!previewRef.current) throw new Error('Chưa có vùng preview');
-    return html2canvas(previewRef.current, { scale: 2, backgroundColor: '#ffffff' });
+    // html2canvas-pro hỗ trợ oklab/oklch/color-mix (CSS màu hiện đại của AntD theme/dark mode).
+    // Vẫn ép thêm style an toàn (hex) lên bản clone để chắc chắn không dính theme ngoài.
+    return html2canvas(previewRef.current, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      onclone: (doc) => {
+        const el = doc.querySelector('[data-export-preview="bang-cong-no"]');
+        if (el) {
+          el.style.backgroundColor = '#ffffff';
+          el.style.color = '#000000';
+        }
+      },
+    });
   }
 
   async function copyImageToClipboard() {
