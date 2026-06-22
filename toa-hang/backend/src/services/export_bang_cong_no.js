@@ -42,17 +42,20 @@ function getCommittedForPayment(allocations, payment_id) {
 }
 
 const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']; // NGÀY,MÃ SP,TÊN SP,ĐVT,SL,ĐƠN GIÁ,THÀNH TIỀN
-const THIN = { style: 'thin', color: { argb: 'FF000000' } };
+// Border đen — dùng cho header, tổng, cuối kỳ
+const THIN   = { style: 'thin',   color: { argb: 'FF000000' } };
 const MEDIUM = { style: 'medium', color: { argb: 'FF000000' } };
+// Border rất nhạt — gridline dữ liệu thường, mắt không bị hút vào đường kẻ
+const LIGHT_GRID = { style: 'thin', color: { argb: 'FFB7B7B7' } };
 
-function setBorder(row, style) {
-  COLS.forEach(c => {
-    row.getCell(c).border = { top: style.top, left: THIN, right: THIN, bottom: style.bottom };
-  });
+// Gridline dòng dữ liệu thường — nhạt, không gây nặng mắt
+function setDataBorder(row) {
+  COLS.forEach(c => { row.getCell(c).border = { top: LIGHT_GRID, left: LIGHT_GRID, right: LIGHT_GRID, bottom: LIGHT_GRID }; });
 }
 
-function setFullThinBorder(row) {
-  COLS.forEach(c => { row.getCell(c).border = { top: THIN, left: THIN, right: THIN, bottom: THIN }; });
+// Header — thin đen, border bottom medium để phân biệt rõ với data
+function setHeaderBorder(row) {
+  COLS.forEach(c => { row.getCell(c).border = { top: THIN, left: THIN, right: THIN, bottom: MEDIUM }; });
 }
 
 const FONT_TITLE  = { name: 'Times New Roman', size: 16, bold: true };
@@ -148,7 +151,7 @@ function buildBangCongNoWorkbook(draftRow) {
     cell.font = FONT_HEADER;
     cell.alignment = { horizontal: 'center', vertical: 'middle' };
   });
-  setFullThinBorder(headerRow);
+  setHeaderBorder(headerRow);
   r++;
 
   // ── Nhóm phát sinh theo ngày ─────────────────────────────────────────────
@@ -169,45 +172,79 @@ function buildBangCongNoWorkbook(draftRow) {
 
     rows.forEach((row, idx) => {
       const xr = ws.getRow(r);
+
+      // Cột A: chỉ set ở dòng đầu tiên — các dòng còn lại để trống,
+      // sau vòng lặp sẽ merge A[groupStartRow]:A[groupStartRow+len-1]
       if (idx === 0) {
         xr.getCell('A').value = dateKey ? new Date(dateKey) : '';
         xr.getCell('A').numFmt = 'dd/mm/yyyy';
+        xr.getCell('A').alignment = { horizontal: 'center', vertical: 'top' };
       }
+
+      // Set từng cell riêng — KHÔNG dùng row.font để tránh side effect
       xr.getCell('B').value = row.ma_sp || '';
       xr.getCell('C').value = row.ten_sp || '';
       xr.getCell('D').value = row.dvt || '';
       xr.getCell('E').value = round(row.sl);
       xr.getCell('F').value = round(row.don_gia);
       xr.getCell('F').numFmt = MONEY_FMT;
-      // THÀNH TIỀN = phần còn lại sau đối trừ (có thể khác SL*ĐƠN GIÁ nếu đã đối trừ 1 phần)
       xr.getCell('G').value = row._remaining;
       xr.getCell('G').numFmt = MONEY_FMT;
 
-      xr.font = FONT_DATA;
-      xr.getCell('A').alignment = { horizontal: 'center' };
+      // Font từng cell
+      ['A','B','C','D','E','F','G'].forEach(c => { xr.getCell(c).font = FONT_DATA; });
       xr.getCell('D').alignment = { horizontal: 'center' };
       xr.getCell('E').alignment = { horizontal: 'right' };
       xr.getCell('F').alignment = { horizontal: 'right' };
       xr.getCell('G').alignment = { horizontal: 'right' };
-      setFullThinBorder(xr);
+
+      setDataBorder(xr);
       r++;
     });
 
-    // Subtotal row (chỉ có giá trị ở cột G). Border đậm CHỈ ở dưới, không ở trên.
-    const subtotalRow = ws.getRow(r);
-    subtotalRow.getCell('G').value = { formula: `SUM(G${groupStartRow}:G${r - 1})` };
-    subtotalRow.getCell('G').numFmt = MONEY_FMT;
-    subtotalRow.getCell('G').font = FONT_DATA_B;
-    subtotalRow.getCell('G').alignment = { horizontal: 'right' };
-    setBorder(subtotalRow, { top: THIN, bottom: MEDIUM });
-    subtotalCells.push(`G${r}`);
+    // Merge cột NGÀY theo nhóm (nếu > 1 dòng)
+    if (rows.length > 1) {
+      ws.mergeCells(`A${groupStartRow}:A${r - 1}`);
+      ws.getCell(`A${groupStartRow}`).alignment = { horizontal: 'center', vertical: 'top' };
+    }
+
+    // ── Dòng Cộng ngày ──────────────────────────────────────────────────
+    // QUAN TRỌNG: phải set value cell C TRƯỚC khi gọi mergeCells,
+    // nếu không ExcelJS sẽ broadcast value sang D:F khi đọc lại.
+    const subtotalRowNum = r;
+    const dateLabel = dateKey
+      ? `Cộng ngày ${dateKey.slice(8,10)}/${dateKey.slice(5,7)}/${dateKey.slice(0,4)}`
+      : 'Cộng ngày';
+
+    // Để A:B trống hoàn toàn — không set value, không set font row-level
+    ws.getCell(`A${subtotalRowNum}`).value = null;
+    ws.getCell(`B${subtotalRowNum}`).value = null;
+
+    // Set giá trị C trước, rồi mới merge C:F
+    ws.getCell(`C${subtotalRowNum}`).value = dateLabel;
+    ws.mergeCells(`C${subtotalRowNum}:F${subtotalRowNum}`);
+    ws.getCell(`C${subtotalRowNum}`).font = FONT_DATA;
+    ws.getCell(`C${subtotalRowNum}`).alignment = { horizontal: 'right', vertical: 'middle' };
+
+    // G — số tiền cộng ngày
+    ws.getCell(`G${subtotalRowNum}`).value = { formula: `SUM(G${groupStartRow}:G${r - 1})` };
+    ws.getCell(`G${subtotalRowNum}`).numFmt = MONEY_FMT;
+    ws.getCell(`G${subtotalRowNum}`).font = FONT_DATA_B;
+    ws.getCell(`G${subtotalRowNum}`).alignment = { horizontal: 'right' };
+
+    // Border: chỉ bottom medium — không đóng khung, dòng thoáng như separator
+    ['A','B','C','D','E','F','G'].forEach(c => {
+      ws.getCell(`${c}${subtotalRowNum}`).border = { bottom: MEDIUM };
+    });
+
+    subtotalCells.push(`G${subtotalRowNum}`);
     r++;
   });
 
   if (order.length === 0) {
     // Không có phát sinh: vẫn để 1 dòng trống để TỔNG không lỗi
     const emptyRow = ws.getRow(r);
-    setFullThinBorder(emptyRow);
+    setDataBorder(emptyRow);
     r++;
   }
 
@@ -222,7 +259,10 @@ function buildBangCongNoWorkbook(draftRow) {
   tongRow.getCell('G').numFmt = MONEY_FMT;
   tongRow.font = FONT_DATA_B;
   tongRow.getCell('G').alignment = { horizontal: 'right' };
-  setFullThinBorder(tongRow);
+  // Dòng TỔNG: top+bottom medium — nổi bật rõ hơn subtotal
+  COLS.forEach(c => {
+    tongRow.getCell(c).border = { top: MEDIUM, left: THIN, right: THIN, bottom: MEDIUM };
+  });
   const tongRowNum = r;
   r++;
 
@@ -281,7 +321,10 @@ function buildBangCongNoWorkbook(draftRow) {
   finalRow.eachCell(cell => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE699' } };
   });
-  setFullThinBorder(finalRow);
+  // Dòng cuối nổi bật nhất: border top+bottom medium
+  COLS.forEach(c => {
+    finalRow.getCell(c).border = { top: MEDIUM, left: THIN, right: THIN, bottom: MEDIUM };
+  });
 
   return wb;
 }
