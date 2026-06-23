@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getOrders, getOrder, updateOrderStatus, deleteOrder } from '../api';
-import { formatMoney, STATUS_COLOR, generateTextToa, calcTotal } from '../utils';
+import { formatMoney, STATUS_COLOR, generateTextToa, generateNdGuiKhach, calcTotal } from '../utils';
 import OrderForm from './OrderForm';
 
 const { Text } = Typography;
@@ -72,9 +72,9 @@ export default function OrderList() {
   }
 
   function handleCopyText(order) {
-    const text = generateTextToa(order);
+    const text = generateNdGuiKhach(order);
     navigator.clipboard.writeText(text).then(() =>
-      message.success('Đã copy — dán vào Zalo gửi khách')
+      message.success('Đã copy nội dung gửi khách!')
     );
   }
 
@@ -179,7 +179,7 @@ export default function OrderList() {
         />
         <Button type="primary" icon={<PlusOutlined />}
           onClick={() => { setEditData(null); setCreate(true); }}>
-          Tạo toa mới
+          Tạo phiếu mới
         </Button>
       </div>
 
@@ -199,7 +199,7 @@ export default function OrderList() {
 
       {/* Drawer: tạo toa mới */}
       <Drawer
-        title="Tạo toa hàng mới"
+        title="Tạo phiếu xuất mới"
         open={createOpen}
         onClose={() => setCreate(false)}
         width="90vw"
@@ -213,7 +213,7 @@ export default function OrderList() {
 
       {/* Drawer: sửa toa */}
       <Drawer
-        title={`Sửa toa ${editData?.ma_toa}`}
+        title={`Sửa phiếu ${editData?.ma_toa}`}
         open={drawerOpen}
         onClose={() => setDrawer(false)}
         width="90vw"
@@ -234,7 +234,7 @@ export default function OrderList() {
         footer={[
           <Button key="copy" icon={<CopyOutlined />}
             onClick={() => { handleCopyText(viewOrder); }}>
-            Copy text Zalo
+            Copy nội dung gửi khách
           </Button>,
           <Button key="close" onClick={() => setViewOpen(false)}>Đóng</Button>,
         ]}

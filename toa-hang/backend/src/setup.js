@@ -203,6 +203,10 @@ async function setupDatabase() {
   addColumnIfMissing('order_details', 'hang_san_xuat', "TEXT DEFAULT ''");
   addColumnIfMissing('order_details', 'nha_cung_cap',  "TEXT DEFAULT ''");
   addColumnIfMissing('order_details', 'dvt',           "TEXT DEFAULT ''");
+  addColumnIfMissing('order_details', 'ten_hang_hien_thi', "TEXT DEFAULT ''");
+  // orders: bổ sung SĐT và địa chỉ khách để điền vào phiếu xuất
+  addColumnIfMissing('orders', 'sdt',     "TEXT DEFAULT ''");
+  addColumnIfMissing('orders', 'dia_chi', "TEXT DEFAULT ''");
 
   // Backfill ma_don cho các toa cũ đã có, suy từ ma_toa dạng "NN.DDMMYY" → "DDMMYYHCNN"
   const oldOrders = [];

@@ -41,7 +41,7 @@ router.get('/', async (req, res) => {
     if (to)     { where.push(`o.ngay_tao <= $to`);     params.$to = to; }
     const whereStr = where.join(' AND ');
     const total = dbGet(db, `SELECT COUNT(*) AS cnt FROM orders o WHERE ${whereStr}`, params);
-    const rows  = dbQuery(db, `SELECT o.id, o.ma_toa, o.ma_don, o.ngay_tao, o.ma_kh, o.ten_kh, o.noi_gui_hang, o.ghi_chu, o.trang_thai, o.created_at, (SELECT COUNT(*) FROM order_details d WHERE d.order_id=o.id) AS so_dong, (SELECT COALESCE(SUM(d.so_luong*d.don_gia_ban),0) FROM order_details d WHERE d.order_id=o.id) AS tong_tien FROM orders o WHERE ${whereStr} ORDER BY o.created_at DESC LIMIT $limit OFFSET $offset`,
+    const rows  = dbQuery(db, `SELECT o.id, o.ma_toa, o.ma_don, o.ngay_tao, o.ma_kh, o.ten_kh, o.sdt, o.dia_chi, o.noi_gui_hang, o.ghi_chu, o.trang_thai, o.created_at, (SELECT COUNT(*) FROM order_details d WHERE d.order_id=o.id) AS so_dong, (SELECT COALESCE(SUM(d.so_luong*d.don_gia_ban),0) FROM order_details d WHERE d.order_id=o.id) AS tong_tien FROM orders o WHERE ${whereStr} ORDER BY o.created_at DESC LIMIT $limit OFFSET $offset`,
       { ...params, $limit: parseInt(limit), $offset: offset });
     db.close();
     res.json({ data: rows, total: total?.cnt || 0, page: parseInt(page), limit: parseInt(limit) });
@@ -62,15 +62,15 @@ router.get('/:ma_toa', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const db = await getDb();
-    const { ma_toa, ma_don, ngay_tao, ma_kh, ten_kh, noi_gui_hang, ghi_chu, details = [] } = req.body;
+    const { ma_toa, ma_don, ngay_tao, ma_kh, ten_kh, sdt, dia_chi, noi_gui_hang, ghi_chu, details = [] } = req.body;
     if (!details.length) { db.close(); return res.status(400).json({ error: 'Chưa có mặt hàng nào' }); }
     const date      = ngay_tao || new Date().toISOString().slice(0,10);
     const finalCode = ma_toa || generateOrderCode(db, date);
     if (dbGet(db, `SELECT id FROM orders WHERE ma_toa = $m`, { $m: finalCode })) { db.close(); return res.status(409).json({ error: 'Mã toa đã tồn tại' }); }
     const finalMaDon = (ma_don && ma_don.trim()) || maDonFromMaToa(finalCode);
-    dbRun(db, `INSERT INTO orders (ma_toa,ma_don,ngay_tao,ma_kh,ten_kh,noi_gui_hang,ghi_chu) VALUES (?,?,?,?,?,?,?)`, [finalCode,finalMaDon,date,ma_kh||'',ten_kh||'',noi_gui_hang||'',ghi_chu||'']);
+    dbRun(db, `INSERT INTO orders (ma_toa,ma_don,ngay_tao,ma_kh,ten_kh,sdt,dia_chi,noi_gui_hang,ghi_chu) VALUES (?,?,?,?,?,?,?,?,?)`, [finalCode,finalMaDon,date,ma_kh||'',ten_kh||'',sdt||'',dia_chi||'',noi_gui_hang||'',ghi_chu||'']);
     const orderId = dbGet(db, `SELECT id FROM orders WHERE ma_toa = $m`, { $m: finalCode }).id;
-    details.forEach((d,i) => dbRun(db, `INSERT INTO order_details (order_id,ma_hang,ten_hang,kho,ton_kho_luc,gia_von,so_luong,don_gia_ban,hang_san_xuat,nha_cung_cap,dvt,ghi_chu,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [orderId,d.ma_hang||'',d.ten_hang||'',d.kho||'',d.ton_kho||0,d.gia_von||0,d.so_luong,d.don_gia_ban||0,d.hang_san_xuat||'',d.nha_cung_cap||'',d.dvt||'',d.ghi_chu||'',i]));
+    details.forEach((d,i) => dbRun(db, `INSERT INTO order_details (order_id,ma_hang,ten_hang,ten_hang_hien_thi,kho,ton_kho_luc,gia_von,so_luong,don_gia_ban,hang_san_xuat,nha_cung_cap,dvt,ghi_chu,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [orderId,d.ma_hang||'',d.ten_hang||'',d.ten_hang_hien_thi||d.ten_hang||'',d.kho||'',d.ton_kho||0,d.gia_von||0,d.so_luong,d.don_gia_ban||0,d.hang_san_xuat||'',d.nha_cung_cap||'',d.dvt||'',d.ghi_chu||'',i]));
     saveDb(db);
     res.json({ success: true, ma_toa: finalCode, ma_don: finalMaDon, id: orderId });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -82,11 +82,11 @@ router.put('/:ma_toa', async (req, res) => {
     const order = dbGet(db, `SELECT * FROM orders WHERE ma_toa = $m`, { $m: req.params.ma_toa });
     if (!order) { db.close(); return res.status(404).json({ error: 'Không tìm thấy toa' }); }
     if (order.trang_thai === 'Đã hủy') { db.close(); return res.status(400).json({ error: 'Không thể sửa toa đã hủy' }); }
-    const { ma_kh, ten_kh, noi_gui_hang, ghi_chu, ma_don, details = [] } = req.body;
+    const { ma_kh, ten_kh, sdt, dia_chi, noi_gui_hang, ghi_chu, ma_don, details = [] } = req.body;
     const finalMaDon = (ma_don && ma_don.trim()) || order.ma_don || maDonFromMaToa(order.ma_toa);
-    dbRun(db, `UPDATE orders SET ma_kh=?,ten_kh=?,noi_gui_hang=?,ghi_chu=?,ma_don=?,updated_at=datetime('now','localtime') WHERE id=?`, [ma_kh||'',ten_kh||'',noi_gui_hang||'',ghi_chu||'',finalMaDon,order.id]);
+    dbRun(db, `UPDATE orders SET ma_kh=?,ten_kh=?,sdt=?,dia_chi=?,noi_gui_hang=?,ghi_chu=?,ma_don=?,updated_at=datetime('now','localtime') WHERE id=?`, [ma_kh||'',ten_kh||'',sdt||'',dia_chi||'',noi_gui_hang||'',ghi_chu||'',finalMaDon,order.id]);
     dbRun(db, `DELETE FROM order_details WHERE order_id=?`, [order.id]);
-    details.forEach((d,i) => dbRun(db, `INSERT INTO order_details (order_id,ma_hang,ten_hang,kho,ton_kho_luc,gia_von,so_luong,don_gia_ban,hang_san_xuat,nha_cung_cap,dvt,ghi_chu,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [order.id,d.ma_hang||'',d.ten_hang||'',d.kho||'',d.ton_kho||0,d.gia_von||0,d.so_luong,d.don_gia_ban||0,d.hang_san_xuat||'',d.nha_cung_cap||'',d.dvt||'',d.ghi_chu||'',i]));
+    details.forEach((d,i) => dbRun(db, `INSERT INTO order_details (order_id,ma_hang,ten_hang,ten_hang_hien_thi,kho,ton_kho_luc,gia_von,so_luong,don_gia_ban,hang_san_xuat,nha_cung_cap,dvt,ghi_chu,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [order.id,d.ma_hang||'',d.ten_hang||'',d.ten_hang_hien_thi||d.ten_hang||'',d.kho||'',d.ton_kho||0,d.gia_von||0,d.so_luong,d.don_gia_ban||0,d.hang_san_xuat||'',d.nha_cung_cap||'',d.dvt||'',d.ghi_chu||'',i]));
     saveDb(db);
     res.json({ success: true, ma_don: finalMaDon });
   } catch (err) { res.status(500).json({ error: err.message }); }
