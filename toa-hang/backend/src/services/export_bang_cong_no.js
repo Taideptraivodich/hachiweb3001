@@ -42,20 +42,19 @@ function getCommittedForPayment(allocations, payment_id) {
 }
 
 const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']; // NGÀY,MÃ SP,TÊN SP,ĐVT,SL,ĐƠN GIÁ,THÀNH TIỀN
-// Border đen — dùng cho header, tổng, cuối kỳ
-const THIN   = { style: 'thin',   color: { argb: 'FF000000' } };
+// Border ngoài bảng — medium đen
 const MEDIUM = { style: 'medium', color: { argb: 'FF000000' } };
-// Border rất nhạt — gridline dữ liệu thường, mắt không bị hút vào đường kẻ
-const LIGHT_GRID = { style: 'thin', color: { argb: 'FFB7B7B7' } };
+// Gridline đồng đều toàn bảng — thin xám, đủ thấy nhưng không nặng mắt
+const GRID = { style: 'thin', color: { argb: 'FF666666' } };
 
-// Gridline dòng dữ liệu thường — nhạt, không gây nặng mắt
+// Gridline đồng đều cho mọi loại dòng
 function setDataBorder(row) {
-  COLS.forEach(c => { row.getCell(c).border = { top: LIGHT_GRID, left: LIGHT_GRID, right: LIGHT_GRID, bottom: LIGHT_GRID }; });
+  COLS.forEach(c => { row.getCell(c).border = { top: GRID, left: GRID, right: GRID, bottom: GRID }; });
 }
 
-// Header — thin đen, border bottom medium để phân biệt rõ với data
+// Header dùng cùng gridline
 function setHeaderBorder(row) {
-  COLS.forEach(c => { row.getCell(c).border = { top: THIN, left: THIN, right: THIN, bottom: MEDIUM }; });
+  COLS.forEach(c => { row.getCell(c).border = { top: GRID, left: GRID, right: GRID, bottom: GRID }; });
 }
 
 const FONT_TITLE  = { name: 'Times New Roman', size: 16, bold: true };
@@ -232,9 +231,9 @@ function buildBangCongNoWorkbook(draftRow) {
     ws.getCell(`G${subtotalRowNum}`).font = FONT_DATA_B;
     ws.getCell(`G${subtotalRowNum}`).alignment = { horizontal: 'right' };
 
-    // Border: chỉ bottom medium — không đóng khung, dòng thoáng như separator
+    // Border: gridline đồng đều, bottom hơi đậm hơn để phân cách nhóm
     ['A','B','C','D','E','F','G'].forEach(c => {
-      ws.getCell(`${c}${subtotalRowNum}`).border = { bottom: MEDIUM };
+      ws.getCell(`${c}${subtotalRowNum}`).border = { top: GRID, left: GRID, right: GRID, bottom: GRID };
     });
 
     subtotalCells.push(`G${subtotalRowNum}`);
@@ -261,7 +260,7 @@ function buildBangCongNoWorkbook(draftRow) {
   tongRow.getCell('G').alignment = { horizontal: 'right' };
   // Dòng TỔNG: top+bottom medium — nổi bật rõ hơn subtotal
   COLS.forEach(c => {
-    tongRow.getCell(c).border = { top: MEDIUM, left: THIN, right: THIN, bottom: MEDIUM };
+    tongRow.getCell(c).border = { top: GRID, left: GRID, right: GRID, bottom: GRID };
   });
   const tongRowNum = r;
   r++;
@@ -323,8 +322,30 @@ function buildBangCongNoWorkbook(draftRow) {
   });
   // Dòng cuối nổi bật nhất: border top+bottom medium
   COLS.forEach(c => {
-    finalRow.getCell(c).border = { top: MEDIUM, left: THIN, right: THIN, bottom: MEDIUM };
+    finalRow.getCell(c).border = { top: GRID, left: GRID, right: GRID, bottom: GRID };
   });
+
+  // ── Border ngoài toàn bảng A2:G[finalRow] ─────────────────────────────────
+  // Gom toàn bộ nội dung thành một khối duy nhất.
+  // Áp sau khi build xong — merge cẩn thận với border đặc biệt đã set sẵn.
+  const firstTableRow = 2;         // row header
+  const lastTableRow  = r - 1;     // r đã tăng sau finalRow
+  const firstCol = 1;              // cột A
+  const lastCol  = 7;              // cột G
+
+  for (let row = firstTableRow; row <= lastTableRow; row++) {
+    for (let col = firstCol; col <= lastCol; col++) {
+      const cell = ws.getCell(row, col);
+      const existing = cell.border || {};
+      cell.border = {
+        ...existing,
+        ...(row === firstTableRow ? { top: GRID }    : {}),
+        ...(row === lastTableRow  ? { top: GRID, left: GRID, right: GRID, bottom: GRID } : {}),
+        ...(col === firstCol      ? { left: GRID }   : {}),
+        ...(col === lastCol       ? { right: GRID }  : {}),
+      };
+    }
+  }
 
   return wb;
 }
