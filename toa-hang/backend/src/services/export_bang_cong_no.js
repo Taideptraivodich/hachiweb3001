@@ -44,8 +44,10 @@ function getCommittedForPayment(allocations, payment_id) {
 const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']; // NGÀY,MÃ SP,TÊN SP,ĐVT,SL,ĐƠN GIÁ,THÀNH TIỀN
 // Border ngoài bảng — medium đen
 const MEDIUM = { style: 'medium', color: { argb: 'FF000000' } };
-// Gridline đồng đều toàn bảng — thin xám, đủ thấy nhưng không nặng mắt
-const GRID = { style: 'thin', color: { argb: 'FF666666' } };
+// Gridline đồng đều toàn bảng — thin, màu đậm như màu chữ (#333), đồng nhất
+// cho mọi loại dòng (header, data, subtotal, TỔNG, dòng cuối, outer border).
+// Không dùng nhiều màu/độ dày khác nhau nữa — merge cell đã đủ phân biệt nhóm.
+const GRID = { style: 'thin', color: { argb: 'FF333333' } };
 
 // Gridline đồng đều cho mọi loại dòng
 function setDataBorder(row) {
@@ -61,7 +63,13 @@ const FONT_TITLE  = { name: 'Times New Roman', size: 16, bold: true };
 const FONT_HEADER = { name: 'Times New Roman', size: 10, bold: true };
 const FONT_DATA   = { name: 'Times New Roman', size: 9 };
 const FONT_DATA_B = { name: 'Times New Roman', size: 9, bold: true };
+// Dòng "Cộng ngày": label in nghiêng (không bold), số tiền bold (không nghiêng)
+const FONT_SUBTOTAL_LABEL  = { name: 'Times New Roman', size: 9, italic: true, bold: false };
+const FONT_SUBTOTAL_AMOUNT = { name: 'Times New Roman', size: 9, bold: true, italic: false };
 const MONEY_FMT = '#,##0';
+// Border riêng cho dòng Cộng ngày — chỉ kẻ ngang dưới, không kẻ đứng nội bộ.
+// Dùng đúng màu/độ dày với GRID để toàn bảng đồng nhất một kiểu gridline duy nhất.
+const GROUP_BOTTOM = GRID;
 
 // ─── Main builder ───────────────────────────────────────────────────────────
 function buildBangCongNoWorkbook(draftRow) {
@@ -222,18 +230,21 @@ function buildBangCongNoWorkbook(draftRow) {
     // Set giá trị C trước, rồi mới merge C:F
     ws.getCell(`C${subtotalRowNum}`).value = dateLabel;
     ws.mergeCells(`C${subtotalRowNum}:F${subtotalRowNum}`);
-    ws.getCell(`C${subtotalRowNum}`).font = FONT_DATA;
+    ws.getCell(`C${subtotalRowNum}`).font = FONT_SUBTOTAL_LABEL;
     ws.getCell(`C${subtotalRowNum}`).alignment = { horizontal: 'right', vertical: 'middle' };
 
     // G — số tiền cộng ngày
     ws.getCell(`G${subtotalRowNum}`).value = { formula: `SUM(G${groupStartRow}:G${r - 1})` };
     ws.getCell(`G${subtotalRowNum}`).numFmt = MONEY_FMT;
-    ws.getCell(`G${subtotalRowNum}`).font = FONT_DATA_B;
+    ws.getCell(`G${subtotalRowNum}`).font = FONT_SUBTOTAL_AMOUNT;
     ws.getCell(`G${subtotalRowNum}`).alignment = { horizontal: 'right' };
 
-    // Border: gridline đồng đều, bottom hơi đậm hơn để phân cách nhóm
+    // Border: dòng Cộng ngày là dòng summary mềm — chỉ kẻ ngang dưới để
+    // phân cách nhóm ngày, KHÔNG kẻ đứng nội bộ giữa label và số tiền.
+    // (left của A và right của G sẽ được bổ sung lại bởi vòng lặp border
+    // ngoài toàn bảng ở cuối hàm — không set ở đây để tránh trùng/sai lệch)
     ['A','B','C','D','E','F','G'].forEach(c => {
-      ws.getCell(`${c}${subtotalRowNum}`).border = { top: GRID, left: GRID, right: GRID, bottom: GRID };
+      ws.getCell(`${c}${subtotalRowNum}`).border = { bottom: GROUP_BOTTOM };
     });
 
     subtotalCells.push(`G${subtotalRowNum}`);

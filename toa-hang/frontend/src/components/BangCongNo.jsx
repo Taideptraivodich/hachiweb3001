@@ -903,10 +903,14 @@ function DoiTruSection({ draft, onChange }) {
 // không cần mở modal.
 const PreviewKhachHang = React.forwardRef(function PreviewKhachHang({ draft, meta }, ref) {
   const data = buildPreviewData(draft, meta);
-  // cellStyle cho dữ liệu thường — gridline rất nhạt, mắt tập trung vào dữ liệu
-  const cellStyle = { border: '1px solid #B7B7B7', padding: '4px 6px', fontFamily: 'Times New Roman, serif' };
-  // headerCellStyle cho header — border đen, bottom đậm để phân biệt rõ
-  const headerCellStyle = { border: '1px solid #000000', borderBottom: '2px solid #000000', padding: '4px 6px', fontFamily: 'Times New Roman, serif' };
+  // Gridline đồng nhất cho TOÀN bảng — một màu, một độ dày duy nhất.
+  // Không còn phân biệt đậm/nhạt giữa header/data/subtotal/TỔNG nữa,
+  // vì merge cell (NGÀY, Cộng ngày) đã đủ để phân biệt nhóm bằng mắt.
+  const GRIDLINE = '1px solid #333333';
+  // cellStyle cho dữ liệu thường
+  const cellStyle = { border: GRIDLINE, padding: '4px 6px', fontFamily: 'Times New Roman, serif' };
+  // headerCellStyle cho header — cùng màu/độ dày với cellStyle
+  const headerCellStyle = { border: GRIDLINE, padding: '4px 6px', fontFamily: 'Times New Roman, serif' };
   const labelRowStyle = { ...cellStyle, textAlign: 'right', fontFamily: 'Times New Roman, serif' };
 
   return (
@@ -961,20 +965,23 @@ const PreviewKhachHang = React.forwardRef(function PreviewKhachHang({ draft, met
               ))}
               {/* Dòng Cộng ngày — separator mềm, chỉ đường kẻ bottom, không đóng khung */}
               <tr>
-                <td colSpan={2} style={{ borderBottom: '2px solid #000000', padding: '5px 0' }}></td>
+                <td colSpan={2} style={{ borderBottom: GRIDLINE, padding: '5px 0' }}></td>
                 <td colSpan={4} style={{
-                  borderBottom: '2px solid #000000',
+                  borderBottom: GRIDLINE,
                   textAlign: 'right',
                   padding: '5px 8px',
                   fontFamily: 'Times New Roman, serif',
                   fontSize: 13,
+                  fontStyle: 'italic',
+                  fontWeight: 400,
                 }}>
                   {g.date && dayjs(g.date).isValid() ? `Cộng ngày ${dayjs(g.date).format('DD/MM/YYYY')}` : 'Cộng ngày'}
                 </td>
                 <td style={{
-                  borderBottom: '2px solid #000000',
+                  borderBottom: GRIDLINE,
                   textAlign: 'right',
                   fontWeight: 700,
+                  fontStyle: 'normal',
                   padding: '5px 6px',
                   fontFamily: 'Times New Roman, serif',
                   fontSize: 13,
@@ -984,9 +991,9 @@ const PreviewKhachHang = React.forwardRef(function PreviewKhachHang({ draft, met
               </tr>
             </React.Fragment>
           ))}
-          <tr style={{ borderTop: '2px solid #000000' }}>
-            <td style={{ ...labelRowStyle, fontWeight: 'bold', borderTop: '2px solid #000000' }} colSpan={6}>TỔNG</td>
-            <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 'bold', borderTop: '2px solid #000000' }}>{formatMoney(data.tongPhatSinh)}</td>
+          <tr style={{ borderTop: GRIDLINE }}>
+            <td style={{ ...labelRowStyle, fontWeight: 'bold', borderTop: GRIDLINE }} colSpan={6}>TỔNG</td>
+            <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 'bold', borderTop: GRIDLINE }}>{formatMoney(data.tongPhatSinh)}</td>
           </tr>
           {data.summaryLines.map((l, i) => (
             <tr key={i}>
@@ -994,11 +1001,11 @@ const PreviewKhachHang = React.forwardRef(function PreviewKhachHang({ draft, met
               <td style={{ ...cellStyle, textAlign: 'right' }}>{formatMoney(l.amount)}</td>
             </tr>
           ))}
-          <tr style={{ background: '#ffe699', borderTop: '2px solid #000000', borderBottom: '2px solid #000000' }}>
-            <td style={{ ...labelRowStyle, fontWeight: 'bold', borderTop: '2px solid #000000', borderBottom: '2px solid #000000' }} colSpan={6}>
+          <tr style={{ background: '#ffe699', borderTop: GRIDLINE, borderBottom: GRIDLINE }}>
+            <td style={{ ...labelRowStyle, fontWeight: 'bold', borderTop: GRIDLINE, borderBottom: GRIDLINE }} colSpan={6}>
               CÔNG NỢ CÒN PHẢI THANH TOÁN{data.denNgay ? ` ĐẾN ${dayjs(data.denNgay).format('DD/MM/YYYY')}` : ''}
             </td>
-            <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 'bold', background: '#ffe699', borderTop: '2px solid #000000', borderBottom: '2px solid #000000' }}>{formatMoney(data.congNoConPhaiThanhToan)}</td>
+            <td style={{ ...cellStyle, textAlign: 'right', fontWeight: 'bold', background: '#ffe699', borderTop: GRIDLINE, borderBottom: GRIDLINE }}>{formatMoney(data.congNoConPhaiThanhToan)}</td>
           </tr>
         </tbody>
       </table>
