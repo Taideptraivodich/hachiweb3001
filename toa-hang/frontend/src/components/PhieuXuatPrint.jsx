@@ -2,10 +2,11 @@
  * PhieuXuatPrint.jsx
  * Template phiếu xuất kho bán hàng — dùng cho:
  *   1. In phiếu giấy (window.print())
- *   2. Copy ảnh phiếu (html2canvas → clipboard)
- *   3. Tải ảnh phiếu (html2canvas → download PNG)
+ *   2. Copy ảnh phiếu (html2canvas-pro → clipboard)
+ *   3. Tải ảnh phiếu (html2canvas-pro → download PNG)
  *
- * Không phụ thuộc vào layout màn app — render riêng biệt trong hidden div.
+ * Layout bám sát PDF mẫu công ty (A4 ngang). Không phụ thuộc layout màn app —
+ * render riêng biệt trong hidden div, dùng cùng 1 component nguồn cho cả 3 chức năng.
  * Màu sắc: hex/rgb thuần, không dùng oklab/oklch/color-mix.
  */
 
@@ -13,17 +14,20 @@ import React, { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button, Space, message, Spin } from 'antd';
 import { PrinterOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons';
+// html2canvas-pro: đã có sẵn trong package.json/package-lock.json (dùng chung với
+// BangCongNo.jsx). Hỗ trợ oklab/oklch/color-mix nên không bị lỗi
+// "Attempting to parse an unsupported color function" như html2canvas thường (CDN).
+import html2canvas from 'html2canvas-pro';
 import dayjs from 'dayjs';
 import { formatMoney, calcTotal } from '../utils';
+import hachiLogo from '../assets/hachi-logo.png';
 
-// ── Logo HACHI dạng SVG inline (tránh phụ thuộc file) ──────────────────────
-const HachiLogo = () => (
-  <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="26" cy="26" r="24" stroke="#1565c0" strokeWidth="2.5" fill="#e3f0ff"/>
-    <text x="26" y="32" textAnchor="middle" fontSize="16" fontWeight="800"
-      fontFamily="Arial,sans-serif" fill="#1565c0">HC</text>
-  </svg>
-);
+// ── Bảng màu lấy đúng từ PDF mẫu ───────────────────────────────────────────
+const DARK_SLATE = '#2c3e50';  // tên công ty + title "PHIẾU XUẤT KHO BÁN HÀNG"
+const ACCENT_BLUE = '#0070c0'; // label các dòng (Địa chỉ:, SĐT:, Tên khách hàng:...)
+const HEADER_BG = '#dbe9f4';   // nền header bảng
+const BORDER_GRAY = '#aaaaaa';
+const TOTAL_BG = '#f5f5f5';
 
 // ── Styles nhúng thẳng vào component (tránh bị Ant Design override) ──────────
 const styles = {
@@ -32,165 +36,162 @@ const styles = {
     fontSize: '13px',
     color: '#111',
     background: '#fff',
-    width: '210mm',
-    minHeight: '148mm',
-    padding: '14mm 16mm 12mm 16mm',
+    width: '297mm',
+    minHeight: '210mm',
+    padding: '12mm 16mm',
     boxSizing: 'border-box',
     position: 'relative',
   },
-  header: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '14px',
+  companyName: {
+    fontSize: '20px',
+    fontWeight: '800',
+    color: DARK_SLATE,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    letterSpacing: '0.3px',
     marginBottom: '10px',
   },
-  companyBlock: {
-    flex: 1,
+  headerRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '16px',
+    marginBottom: '14px',
   },
-  companyName: {
-    fontSize: '15px',
-    fontWeight: '800',
-    color: '#1565c0',
-    textTransform: 'uppercase',
-    marginBottom: '4px',
-    letterSpacing: '0.3px',
+  logoImg: {
+    width: '88px',
+    height: '88px',
+    objectFit: 'contain',
+    flexShrink: 0,
   },
   companyMeta: {
-    fontSize: '11px',
-    color: '#444',
-    lineHeight: '1.6',
+    fontSize: '12px',
+    color: '#222',
+    lineHeight: '1.7',
+    paddingTop: '4px',
   },
   companyMetaLabel: {
     fontWeight: '700',
-    color: '#1565c0',
+    color: ACCENT_BLUE,
   },
   titleBlock: {
     textAlign: 'center',
-    margin: '10px 0 8px 0',
-    borderTop: '2px solid #1565c0',
-    borderBottom: '1px solid #ccc',
-    padding: '8px 0',
+    margin: '4px 0 14px 0',
   },
   titleMain: {
-    fontSize: '18px',
-    fontWeight: '900',
-    letterSpacing: '1px',
+    fontSize: '24px',
+    fontWeight: '800',
+    letterSpacing: '0.5px',
     textTransform: 'uppercase',
-    color: '#111',
+    color: DARK_SLATE,
   },
   titleSub: {
-    fontSize: '12px',
-    color: '#555',
-    marginTop: '3px',
+    fontSize: '13px',
+    color: '#000',
+    marginTop: '8px',
   },
   titleMaDon: {
     fontSize: '13px',
-    fontWeight: '700',
-    color: '#1565c0',
+    color: '#000',
     marginTop: '2px',
   },
   customerBlock: {
-    marginBottom: '10px',
-    lineHeight: '1.65',
+    marginBottom: '14px',
+    lineHeight: '1.7',
+  },
+  customerLine: {
+    fontSize: '13px',
   },
   customerLabel: {
-    color: '#1565c0',
+    color: ACCENT_BLUE,
     fontWeight: '700',
-    fontSize: '12px',
-    marginRight: '4px',
+  },
+  customerValueStrong: {
+    color: '#111',
+    fontWeight: '700',
   },
   customerValue: {
-    fontWeight: '700',
-    fontSize: '14px',
-  },
-  customerMeta: {
-    fontSize: '12px',
-    color: '#1565c0',
-  },
-  customerMetaVal: {
     color: '#111',
-    fontWeight: '500',
+    fontWeight: '400',
   },
   table: {
     width: '100%',
     borderCollapse: 'collapse',
-    marginBottom: '6px',
-    fontSize: '12px',
+    marginBottom: '10px',
+    fontSize: '12.5px',
   },
   thCell: {
-    background: '#c8d8f0',
-    color: '#1a1a1a',
+    background: HEADER_BG,
+    color: '#111',
     fontWeight: '700',
-    border: '1px solid #aaa',
-    padding: '5px 6px',
+    border: `1px solid ${BORDER_GRAY}`,
+    padding: '6px 8px',
     textAlign: 'center',
     whiteSpace: 'nowrap',
   },
   tdCell: {
-    border: '1px solid #ccc',
-    padding: '5px 6px',
+    border: `1px solid ${BORDER_GRAY}`,
+    padding: '6px 8px',
     verticalAlign: 'middle',
   },
   tdCenter: {
-    border: '1px solid #ccc',
-    padding: '5px 6px',
+    border: `1px solid ${BORDER_GRAY}`,
+    padding: '6px 8px',
     textAlign: 'center',
     verticalAlign: 'middle',
   },
   tdRight: {
-    border: '1px solid #ccc',
-    padding: '5px 6px',
+    border: `1px solid ${BORDER_GRAY}`,
+    padding: '6px 8px',
     textAlign: 'right',
     verticalAlign: 'middle',
   },
-  totalRow: {
-    background: '#f0f5ff',
-  },
   totalLabelCell: {
-    border: '1px solid #ccc',
-    padding: '6px',
+    border: `1px solid ${BORDER_GRAY}`,
+    background: TOTAL_BG,
+    padding: '7px 8px',
     textAlign: 'right',
     fontWeight: '700',
-    fontSize: '12px',
-    color: '#333',
+    fontSize: '12.5px',
+    color: '#111',
   },
   totalValueCell: {
-    border: '1px solid #ccc',
-    padding: '6px',
+    border: `1px solid ${BORDER_GRAY}`,
+    background: TOTAL_BG,
+    padding: '7px 8px',
     textAlign: 'right',
-    fontWeight: '800',
-    fontSize: '13px',
-    color: '#1565c0',
+    fontWeight: '700',
+    fontSize: '12.5px',
+    color: '#111',
   },
   note: {
-    fontSize: '11px',
-    color: '#555',
-    fontStyle: 'italic',
-    marginBottom: '14px',
-    marginTop: '4px',
+    fontSize: '12px',
+    color: '#111',
+    fontStyle: 'normal',
+    marginBottom: '30px',
+    marginTop: '6px',
   },
   signatureRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    marginTop: '16px',
+    marginTop: '6px',
     textAlign: 'center',
   },
   signatureCell: {
     flex: 1,
-    fontSize: '12px',
-    color: '#222',
+    fontSize: '13px',
+    color: '#111',
   },
   signatureLabel: {
     fontWeight: '700',
     marginBottom: '2px',
   },
   signatureNote: {
-    fontSize: '11px',
-    color: '#777',
-    fontStyle: 'italic',
+    fontSize: '12px',
+    color: '#333',
+    fontStyle: 'normal',
   },
   signatureSpace: {
-    height: '40px',
+    height: '50px',
   },
 };
 
@@ -203,16 +204,21 @@ export function PhieuXuatTemplate({ order }) {
     : dayjs().format('DD [tháng] MM [năm] YYYY');
 
   return (
-    <div style={styles.wrapper}>
-      {/* Header */}
-      <div style={styles.header}>
-        <HachiLogo />
-        <div style={styles.companyBlock}>
-          <div style={styles.companyName}>Công ty TNHH Phụ Tùng Hachi Việt Nam</div>
-          <div style={styles.companyMeta}>
-            <span style={styles.companyMetaLabel}>Địa chỉ:</span> Số 139C Đường Nguyễn Bá Học, KP2, Phường Tam Hiệp, Thành phố Đồng Nai, Việt Nam<br />
+    <div style={styles.wrapper} data-export-preview="phieu-xuat">
+      {/* Tên công ty — canh giữa toàn trang, trên cùng */}
+      <div style={styles.companyName}>Công ty TNHH Phụ Tùng Hachi Việt Nam</div>
+
+      {/* Logo + thông tin công ty */}
+      <div style={styles.headerRow}>
+        <img src={hachiLogo} alt="HACHI" style={styles.logoImg} crossOrigin="anonymous" />
+        <div style={styles.companyMeta}>
+          <div>
+            <span style={styles.companyMetaLabel}>Địa chỉ:</span> Số 139C Đường Nguyễn Bá Học, KP2, Phường Tam Hiệp, Thành phố Đồng Nai, Việt Nam
+          </div>
+          <div>
             <span style={styles.companyMetaLabel}>SĐT:</span> 0901629777
-            &nbsp;&nbsp;
+          </div>
+          <div>
             <span style={styles.companyMetaLabel}>MST:</span> 3603812751
           </div>
         </div>
@@ -225,32 +231,27 @@ export function PhieuXuatTemplate({ order }) {
         <div style={styles.titleMaDon}>Mã đơn: {order.ma_don || order.ma_toa}</div>
       </div>
 
-      {/* Thông tin khách */}
+      {/* Thông tin khách — mỗi dòng riêng */}
       <div style={styles.customerBlock}>
-        <div>
-          <span style={styles.customerLabel}>Tên khách hàng:</span>
-          <span style={styles.customerValue}>{order.ten_kh || '—'}</span>
+        <div style={styles.customerLine}>
+          <span style={styles.customerLabel}>Tên khách hàng: </span>
+          <span style={styles.customerValueStrong}>{order.ten_kh || '—'}</span>
         </div>
-        <div style={styles.customerMeta}>
-          <span style={styles.customerLabel}>Mã khách hàng:</span>
-          <span style={styles.customerMetaVal}>{order.ma_kh || '—'}</span>
-          {order.sdt && (
-            <>
-              &nbsp;&nbsp;
-              <span style={styles.customerLabel}>SĐT:</span>
-              <span style={styles.customerMetaVal}>{order.sdt}</span>
-            </>
-          )}
+        <div style={styles.customerLine}>
+          <span style={styles.customerLabel}>Mã khách hàng: </span>
+          <span style={styles.customerValue}>{order.ma_kh || '—'}</span>
         </div>
-        {order.dia_chi && (
-          <div style={styles.customerMeta}>
-            <span style={styles.customerLabel}>Địa chỉ:</span>
-            <span style={styles.customerMetaVal}>{order.dia_chi}</span>
-          </div>
-        )}
-        <div style={styles.customerMeta}>
-          <span style={styles.customerLabel}>Giao hàng tại:</span>
-          <span style={styles.customerMetaVal}>{order.noi_gui_hang || ''}</span>
+        <div style={styles.customerLine}>
+          <span style={styles.customerLabel}>SĐT: </span>
+          <span style={styles.customerValue}>{order.sdt || ''}</span>
+        </div>
+        <div style={styles.customerLine}>
+          <span style={styles.customerLabel}>Địa chỉ: </span>
+          <span style={styles.customerValue}>{order.dia_chi || ''}</span>
+        </div>
+        <div style={styles.customerLine}>
+          <span style={styles.customerLabel}>Giao hàng tại: </span>
+          <span style={styles.customerValue}>{order.noi_gui_hang || ''}</span>
         </div>
       </div>
 
@@ -258,23 +259,23 @@ export function PhieuXuatTemplate({ order }) {
       <table style={styles.table}>
         <thead>
           <tr>
-            <th style={{ ...styles.thCell, width: '32px' }}>STT</th>
-            <th style={{ ...styles.thCell, width: '100px' }}>Mã</th>
+            <th style={{ ...styles.thCell, width: '36px' }}>STT</th>
+            <th style={{ ...styles.thCell, width: '110px' }}>Mã</th>
             <th style={{ ...styles.thCell, width: '70px' }}>NSX</th>
             <th style={styles.thCell}>Mô tả</th>
-            <th style={{ ...styles.thCell, width: '42px' }}>ĐVT</th>
-            <th style={{ ...styles.thCell, width: '72px' }}>Đơn giá</th>
-            <th style={{ ...styles.thCell, width: '52px' }}>Số lượng</th>
-            <th style={{ ...styles.thCell, width: '85px' }}>Thành tiền</th>
+            <th style={{ ...styles.thCell, width: '48px' }}>ĐVT</th>
+            <th style={{ ...styles.thCell, width: '90px' }}>Đơn giá</th>
+            <th style={{ ...styles.thCell, width: '70px' }}>Số lượng</th>
+            <th style={{ ...styles.thCell, width: '100px' }}>Thành tiền</th>
           </tr>
         </thead>
         <tbody>
           {details.map((d, i) => {
             const tenHien = d.ten_hang_hien_thi || d.ten_hang || '';
             return (
-              <tr key={d.id || i} style={i % 2 === 1 ? { background: '#f8faff' } : {}}>
+              <tr key={d.id || i}>
                 <td style={styles.tdCenter}>{i + 1}</td>
-                <td style={{ ...styles.tdCell, fontSize: '11px', fontFamily: 'monospace' }}>
+                <td style={{ ...styles.tdCell, fontSize: '12px', fontFamily: 'monospace' }}>
                   {d.ma_hang || ''}
                 </td>
                 <td style={styles.tdCenter}>{d.hang_san_xuat || ''}</td>
@@ -289,9 +290,9 @@ export function PhieuXuatTemplate({ order }) {
             );
           })}
           {/* Dòng tổng cộng */}
-          <tr style={styles.totalRow}>
+          <tr>
             <td colSpan={6} style={styles.totalLabelCell}>Tổng cộng</td>
-            <td style={{ ...styles.tdCenter, fontWeight: '700' }}>
+            <td style={{ ...styles.totalLabelCell, textAlign: 'center' }}>
               {details.reduce((s, d) => s + parseFloat(d.so_luong || 0), 0)}
             </td>
             <td style={styles.totalValueCell}>{formatMoney(total)}</td>
@@ -333,53 +334,53 @@ function injectPrintStyle() {
         z-index: 99999 !important;
         background: white !important;
       }
-      @page { margin: 0; size: A4; }
+      @page { margin: 0; size: A4 landscape; }
     }
   `;
   document.head.appendChild(style);
 }
 
-// ── Load html2canvas lazy ─────────────────────────────────────────────────────
-let html2canvasCache = null;
-async function loadHtml2Canvas() {
-  if (html2canvasCache) return html2canvasCache;
-  const mod = await import('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.esm.min.js');
-  html2canvasCache = mod.default || mod;
-  return html2canvasCache;
-}
-
 // ── Hàm render phiếu vào hidden div rồi chụp canvas ─────────────────────────
+// Dùng html2canvas-pro (đã có trong dependencies) thay cho html2canvas tải qua CDN —
+// html2canvas-pro parse được oklab/oklch/color-mix nên không còn lỗi
+// "Attempting to parse an unsupported color function" khi AntD/theme inject CSS màu hiện đại.
 async function renderPhieuToCanvas(order) {
-  // Tạo/tái dùng hidden container
+  // Tạo/tái dùng hidden container — chỉ chứa đúng node phiếu, không dính
+  // modal/toolbar/app shell (đáp ứng acceptance "ảnh xuất ra chỉ chứa phiếu").
   let container = document.getElementById('phieu-xuat-canvas-container');
   if (!container) {
     container = document.createElement('div');
     container.id = 'phieu-xuat-canvas-container';
     container.style.cssText = `
       position:fixed; left:-9999px; top:0; z-index:-1;
-      background:white; width:794px;
+      background:white; width:1123px;
     `;
     document.body.appendChild(container);
   }
 
-  // Render React vào container (dùng createRoot)
-  // createRoot imported statically at top
   const root = createRoot(container);
 
   await new Promise(resolve => {
     root.render(
       React.createElement(PhieuXuatTemplate, { order }),
     );
-    // Đợi paint
+    // Đợi paint + ảnh logo load xong
     setTimeout(resolve, 350);
   });
 
-  const h2c = await loadHtml2Canvas();
-  const canvas = await h2c(container, {
+  const canvas = await html2canvas(container, {
     scale: 2,
     useCORS: true,
     backgroundColor: '#ffffff',
     logging: false,
+    onclone: (doc) => {
+      // Ép thêm style an toàn (hex) lên bản clone để chắc chắn không dính theme/dark mode ngoài.
+      const el = doc.querySelector('[data-export-preview="phieu-xuat"]');
+      if (el) {
+        el.style.backgroundColor = '#ffffff';
+        el.style.color = '#111111';
+      }
+    },
   });
 
   // Cleanup
