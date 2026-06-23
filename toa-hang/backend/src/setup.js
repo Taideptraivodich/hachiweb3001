@@ -183,6 +183,39 @@ async function setupDatabase() {
     )`,
   ];
   for (const sql of tables) db.run(sql);
+
+  // ── Migration: thêm cột mới vào DB cũ (chạy an toàn mỗi lần khởi động) ──
+  function columnExists(table, column) {
+    const cols = [];
+    db.each(`PRAGMA table_info(${table})`, {}, (row) => cols.push(row.name));
+    return cols.includes(column);
+  }
+  function addColumnIfMissing(table, column, definition) {
+    if (!columnExists(table, column)) {
+      db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      console.log(`🛠️  Migration: đã thêm cột "${column}" vào bảng "${table}"`);
+    }
+  }
+
+  // orders.ma_don: mã đơn chuẩn gửi khách/in phiếu/export, dạng DDMMYYHCNN (vd 230626HC07)
+  addColumnIfMissing('orders', 'ma_don', "TEXT DEFAULT ''");
+  // order_details: bổ sung Hãng SX / Nhà cung cấp / ĐVT để khớp mẫu Excel Flowex
+  addColumnIfMissing('order_details', 'hang_san_xuat', "TEXT DEFAULT ''");
+  addColumnIfMissing('order_details', 'nha_cung_cap',  "TEXT DEFAULT ''");
+  addColumnIfMissing('order_details', 'dvt',           "TEXT DEFAULT ''");
+
+  // Backfill ma_don cho các toa cũ đã có, suy từ ma_toa dạng "NN.DDMMYY" → "DDMMYYHCNN"
+  const oldOrders = [];
+  db.each(`SELECT id, ma_toa, ma_don FROM orders`, {}, (row) => oldOrders.push(row));
+  const reMaToa = /^(\d{1,2})\.(\d{6})$/;
+  for (const o of oldOrders) {
+    if (o.ma_don) continue;
+    const m = String(o.ma_toa || '').match(reMaToa);
+    if (!m) continue; // ma_toa không theo pattern chuẩn → để trống, user tự nhập tay
+    const [, seq, ddmmyy] = m;
+    db.run(`UPDATE orders SET ma_don=? WHERE id=?`, [`${ddmmyy}HC${seq.padStart(2,'0')}`, o.id]);
+  }
+
   saveDb(db);
   console.log('✅ SQLite database ready:', require('path').join(__dirname,'..','data','toa-hang.db'));
 }

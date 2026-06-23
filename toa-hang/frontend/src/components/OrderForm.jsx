@@ -194,6 +194,7 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
     if (initialData) {
       form.setFieldsValue({
         ma_toa:       initialData.ma_toa,
+        ma_don:       initialData.ma_don,
         ngay_tao:     dayjs(initialData.ngay_tao),
         ten_kh:       initialData.ten_kh,
         noi_gui_hang: initialData.noi_gui_hang,
@@ -208,8 +209,9 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
 
   async function fetchNextCode(date) {
     try {
-      const { code } = await getNextCode(date.format('YYYY-MM-DD'));
+      const { code, ma_don } = await getNextCode(date.format('YYYY-MM-DD'));
       form.setFieldValue('ma_toa', code);
+      form.setFieldValue('ma_don', ma_don);
     } catch {}
   }
 
@@ -249,6 +251,9 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         gia_von:    p.gia_von,
         so_luong:   p.so_luong,
         don_gia_ban: p.don_gia_ban,
+        hang_san_xuat: p.hang_san_xuat || '',
+        nha_cung_cap:  p.nha_cung_cap || '',
+        dvt:           p.dvt || '',
         ghi_chu:    '',
       }];
     });
@@ -259,7 +264,8 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
   function addManualRow() {
     setDetails(prev => [...prev, {
       key: Date.now(), ma_hang: '', ten_hang: '', kho: '',
-      ton_kho: null, gia_von: null, so_luong: 1, don_gia_ban: 0, ghi_chu: ''
+      ton_kho: null, gia_von: null, so_luong: 1, don_gia_ban: 0,
+      hang_san_xuat: '', nha_cung_cap: '', dvt: '', ghi_chu: ''
     }]);
   }
 
@@ -283,6 +289,7 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
       setLoading(true);
       const payload = {
         ma_toa:       values.ma_toa,
+        ma_don:       values.ma_don || '',
         ngay_tao:     values.ngay_tao.format('YYYY-MM-DD'),
         ma_kh:        values.ma_kh || '',
         ten_kh:       values.ten_kh || '',
@@ -291,7 +298,9 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         details: details.map(d => ({
           ma_hang: d.ma_hang, ten_hang: d.ten_hang, kho: d.kho,
           ton_kho: d.ton_kho, gia_von: d.gia_von,
-          so_luong: d.so_luong, don_gia_ban: d.don_gia_ban, ghi_chu: d.ghi_chu,
+          so_luong: d.so_luong, don_gia_ban: d.don_gia_ban,
+          hang_san_xuat: d.hang_san_xuat || '', nha_cung_cap: d.nha_cung_cap || '', dvt: d.dvt || '',
+          ghi_chu: d.ghi_chu,
         })),
       };
 
@@ -382,6 +391,36 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
       ),
     },
     {
+      title: 'Hãng SX', width: 100,
+      render: (_, row) => (
+        <Input
+          size="small" value={row.hang_san_xuat}
+          placeholder="Hãng SX"
+          onChange={e => updateRow(row.key, 'hang_san_xuat', e.target.value)}
+        />
+      ),
+    },
+    {
+      title: 'NCC', width: 90,
+      render: (_, row) => (
+        <Input
+          size="small" value={row.nha_cung_cap}
+          placeholder="NCC"
+          onChange={e => updateRow(row.key, 'nha_cung_cap', e.target.value)}
+        />
+      ),
+    },
+    {
+      title: 'ĐVT', width: 80,
+      render: (_, row) => (
+        <Input
+          size="small" value={row.dvt}
+          placeholder="ĐVT"
+          onChange={e => updateRow(row.key, 'dvt', e.target.value)}
+        />
+      ),
+    },
+    {
       title: 'SL', width: 75,
       render: (_, row) => (
         <InputNumber
@@ -451,6 +490,10 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
             rules={[{ required: true, message: 'Cần mã toa' }]}>
             <Input style={{ width: 120 }} />
           </Form.Item>
+          <Form.Item name="ma_don" label="Mã đơn"
+            tooltip="Mã dùng để gửi khách/in phiếu/export Excel, ví dụ 230626HC07">
+            <Input style={{ width: 130 }} placeholder="DDMMYYHCNN" />
+          </Form.Item>
           <Form.Item name="ngay_tao" label="Ngày" rules={[{ required: true }]}>
             <DatePicker format="DD/MM/YYYY"
               onChange={date => date && fetchNextCode(date)} />
@@ -484,6 +527,7 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         pagination={false}
         size="small"
         rowKey="key"
+        scroll={{ x: 1150 }}
         locale={{ emptyText: 'Tìm hàng ở trên hoặc nhấn "Thêm mặt hàng" để thêm thủ công' }}
         style={{ marginBottom: 8 }}
         footer={() => (

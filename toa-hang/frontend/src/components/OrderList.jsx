@@ -94,6 +94,10 @@ export default function OrderList() {
       ),
     },
     {
+      title: 'Mã đơn', dataIndex: 'ma_don', width: 110,
+      render: v => v ? <Text code style={{ fontSize: 12 }}>{v}</Text> : <Text type="secondary">—</Text>,
+    },
+    {
       title: 'Ngày', dataIndex: 'ngay_tao', width: 95,
       render: v => dayjs(v).format('DD/MM/YYYY'),
     },
@@ -185,7 +189,7 @@ export default function OrderList() {
         rowKey="id"
         loading={loading}
         size="small"
-        scroll={{ x: 600 }}
+        scroll={{ x: 720 }}
         pagination={{
           current: page, total, pageSize: 20,
           onChange: setPage,
@@ -248,6 +252,7 @@ function OrderDetail({ order }) {
     <div>
       <Descriptions size="small" column={2} bordered>
         <Descriptions.Item label="Mã toa">{order.ma_toa}</Descriptions.Item>
+        <Descriptions.Item label="Mã đơn">{order.ma_don || '—'}</Descriptions.Item>
         <Descriptions.Item label="Ngày">
           {dayjs(order.ngay_tao).format('DD/MM/YYYY')}
         </Descriptions.Item>
@@ -274,9 +279,13 @@ function OrderDetail({ order }) {
         rowKey="id"
         size="small"
         pagination={false}
+        scroll={{ x: 760 }}
         columns={[
           { title:'Tên hàng', dataIndex:'ten_hang', ellipsis:true },
           { title:'Mã', dataIndex:'ma_hang', width:120 },
+          { title:'Hãng SX', dataIndex:'hang_san_xuat', width:100 },
+          { title:'NCC', dataIndex:'nha_cung_cap', width:90 },
+          { title:'ĐVT', dataIndex:'dvt', width:70 },
           { title:'SL', dataIndex:'so_luong', width:60 },
           {
             title:'Đơn giá', dataIndex:'don_gia_ban', width:110,
