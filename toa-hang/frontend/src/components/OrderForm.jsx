@@ -178,11 +178,19 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         noi_gui_hang: initialData.noi_gui_hang,
         ghi_chu:      initialData.ghi_chu,
       });
-      setDetails((initialData.details || []).map((d, i) => ({
+      const mappedDetails = (initialData.details || []).map((d, i) => ({
         ...d,
         key: i,
         ten_hang_hien_thi: d.ten_hang_hien_thi || d.ten_hang || '',
-      })));
+      }));
+      setDetails(mappedDetails);
+      // Hiện sẵn các nút In/Copy khi mở phiếu cũ để sửa
+      const preloadedOrder = {
+        ...initialData,
+        details: mappedDetails,
+      };
+      setSavedOrder(preloadedOrder);
+      setNdGuiKhach(generateNdGuiKhach(preloadedOrder));
     } else {
       form.setFieldsValue({ ngay_tao: dayjs() });
       fetchNextCode(dayjs());
@@ -320,18 +328,24 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         message.success(`Đã tạo phiếu ${values.ma_toa}`);
       }
 
-      // Hiện khu vực actions
+      // Hiện khu vực actions — giữ đủ dữ liệu để in/copy ảnh
       const savedInfo = {
-        ma_toa: values.ma_toa,
-        ma_don: maDon || values.ma_don || '',
-        ten_kh: values.ten_kh || '',
-        ma_kh:  values.ma_kh  || '',
+        ma_toa:       values.ma_toa,
+        ma_don:       maDon || values.ma_don || '',
+        ten_kh:       values.ten_kh       || '',
+        ma_kh:        values.ma_kh        || '',
+        sdt:          values.sdt          || '',
+        dia_chi:      values.dia_chi      || '',
+        noi_gui_hang: values.noi_gui_hang || '',
+        ghi_chu:      values.ghi_chu      || '',
+        ngay_tao:     values.ngay_tao?.format('YYYY-MM-DD'),
         details,
       };
       setSavedOrder(savedInfo);
       setNdGuiKhach(generateNdGuiKhach(savedInfo));
 
-      onSaved?.();
+      // Chỉ refresh danh sách bên ngoài, KHÔNG đóng drawer
+      onSaved?.(savedInfo);
     } catch (err) {
       if (err?.response?.data?.error) message.error(err.response.data.error);
     } finally {
@@ -687,18 +701,10 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
           </Space>
 
           <div style={{ marginTop: 10 }}>
-            <PhieuXuatActions order={{
-              ...savedOrder,
-              ngay_tao: form.getFieldValue('ngay_tao')?.format('YYYY-MM-DD'),
-              noi_gui_hang: form.getFieldValue('noi_gui_hang') || '',
-              sdt:          form.getFieldValue('sdt')     || '',
-              dia_chi:      form.getFieldValue('dia_chi') || '',
-            }} />
+            <PhieuXuatActions order={savedOrder} />
           </div>
 
-          <div style={{ marginTop: 8 }}>
-            <Button disabled size="middle" title="Sắp có">Export Excel danh sách</Button>
-          </div>
+
         </Card>
       )}
 

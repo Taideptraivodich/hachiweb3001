@@ -1,18 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Table, Button, Input, Select, DatePicker, Space,
   Tag, Typography, Popconfirm, message, Drawer,
-  Descriptions, Divider, Modal
+  Descriptions, Divider, Modal, Tooltip
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, EditOutlined,
   StopOutlined, CheckOutlined, CopyOutlined, EyeOutlined,
-  DeleteOutlined
+  DeleteOutlined, PrinterOutlined, DownloadOutlined,
+  FileExcelOutlined, PictureOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getOrders, getOrder, updateOrderStatus, deleteOrder } from '../api';
 import { formatMoney, STATUS_COLOR, generateTextToa, generateNdGuiKhach, calcTotal } from '../utils';
 import OrderForm from './OrderForm';
+import PhieuXuatActions from './PhieuXuatPrint';
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -26,9 +28,11 @@ export default function OrderList() {
   const [filters, setFilters]   = useState({});
   const [drawerOpen, setDrawer] = useState(false);
   const [editData, setEditData] = useState(null);
-  const [viewOrder, setView]    = useState(null);
-  const [viewOpen, setViewOpen] = useState(false);
-  const [createOpen, setCreate] = useState(false);
+  const [viewOrder, setView]         = useState(null);
+  const [viewOpen, setViewOpen]      = useState(false);
+  const [createOpen, setCreate]      = useState(false);
+  const [actionOrder, setActionOrder] = useState(null);
+  const [actionOpen, setActionOpen]  = useState(false);
 
   useEffect(() => { loadOrders(); }, [page, filters]);
 
@@ -69,6 +73,12 @@ export default function OrderList() {
     } catch(e) {
       message.error('Xóa thất bại: ' + e.message);
     }
+  }
+
+  async function handleOpenAction(ma_toa) {
+    const data = await getOrder(ma_toa);
+    setActionOrder(data);
+    setActionOpen(true);
   }
 
   function handleCopyText(order) {
@@ -115,17 +125,26 @@ export default function OrderList() {
       render: v => <Tag color={STATUS_COLOR[v]}>{v}</Tag>,
     },
     {
-      title: '', width: 170,
+      title: '', width: 220,
       render: (_, row) => (
-        <Space size={2}>
-          <Button size="small" icon={<EyeOutlined />}
-            onClick={() => handleView(row.ma_toa)} />
-          <Button size="small" icon={<EditOutlined />}
-            onClick={() => handleEdit(row.ma_toa)}
-            disabled={row.trang_thai === 'Đã hủy'} />
-          <Button size="small" icon={<CopyOutlined />}
-            onClick={() => handleCopyFull(row.ma_toa)}
-            title="Copy text gửi Zalo" />
+        <Space size={2} wrap>
+          <Tooltip title="Xem chi tiết">
+            <Button size="small" icon={<EyeOutlined />}
+              onClick={() => handleView(row.ma_toa)} />
+          </Tooltip>
+          <Tooltip title="Sửa phiếu">
+            <Button size="small" icon={<EditOutlined />}
+              onClick={() => handleEdit(row.ma_toa)}
+              disabled={row.trang_thai === 'Đã hủy'} />
+          </Tooltip>
+          <Tooltip title="In / Copy ảnh / Tải ảnh">
+            <Button size="small" icon={<PrinterOutlined />}
+              onClick={() => handleOpenAction(row.ma_toa)} />
+          </Tooltip>
+          <Tooltip title="Copy nội dung gửi khách">
+            <Button size="small" icon={<CopyOutlined />}
+              onClick={() => handleCopyFull(row.ma_toa)} />
+          </Tooltip>
           {row.trang_thai === 'Đang xử lý' && (
             <Popconfirm title="Hoàn thành toa này?"
               onConfirm={() => handleStatus(row.ma_toa, 'Đã hoàn thành')}>
@@ -181,6 +200,11 @@ export default function OrderList() {
           onClick={() => { setEditData(null); setCreate(true); }}>
           Tạo phiếu mới
         </Button>
+        <Tooltip title="Sắp có: export danh sách phiếu theo bộ lọc hiện tại">
+          <Button icon={<FileExcelOutlined />} disabled>
+            Export Excel danh sách
+          </Button>
+        </Tooltip>
       </div>
 
       <Table
@@ -206,7 +230,7 @@ export default function OrderList() {
         destroyOnClose
       >
         <OrderForm
-          onSaved={() => { setCreate(false); loadOrders(); }}
+          onSaved={() => { loadOrders(); }}
           onCancel={() => setCreate(false)}
         />
       </Drawer>
@@ -221,10 +245,25 @@ export default function OrderList() {
       >
         <OrderForm
           initialData={editData}
-          onSaved={() => { setDrawer(false); loadOrders(); }}
+          onSaved={() => { loadOrders(); }}
           onCancel={() => setDrawer(false)}
         />
       </Drawer>
+
+      {/* Modal: In / Copy ảnh / Tải ảnh từ danh sách */}
+      <Modal
+        title={`In / Xuất phiếu: ${actionOrder?.ma_toa}`}
+        open={actionOpen}
+        onCancel={() => setActionOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setActionOpen(false)}>Đóng</Button>,
+        ]}
+        width={600}
+      >
+        {actionOrder && (
+          <PhieuXuatActions order={actionOrder} />
+        )}
+      </Modal>
 
       {/* Modal: xem chi tiết toa */}
       <Modal
