@@ -17,6 +17,7 @@ import {
 } from '../api';
 import { formatMoney, calcTotal, generateTextToa, generateNdGuiKhach } from '../utils';
 import HistoryModal from './HistoryModal';
+import PhieuXuatActions from './PhieuXuatPrint';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -683,10 +684,21 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
             >
               Copy toa hàng text
             </Button>
-            <Button disabled size="middle" title="Sắp có">In phiếu giấy</Button>
-            <Button disabled size="middle" title="Sắp có">Copy ảnh phiếu</Button>
-            <Button disabled size="middle" title="Sắp có">Export Excel</Button>
           </Space>
+
+          <div style={{ marginTop: 10 }}>
+            <PhieuXuatActions order={{
+              ...savedOrder,
+              ngay_tao: form.getFieldValue('ngay_tao')?.format('YYYY-MM-DD'),
+              noi_gui_hang: form.getFieldValue('noi_gui_hang') || '',
+              sdt:          form.getFieldValue('sdt')     || '',
+              dia_chi:      form.getFieldValue('dia_chi') || '',
+            }} />
+          </div>
+
+          <div style={{ marginTop: 8 }}>
+            <Button disabled size="middle" title="Sắp có">Export Excel danh sách</Button>
+          </div>
         </Card>
       )}
 
