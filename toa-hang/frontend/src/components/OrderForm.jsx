@@ -146,7 +146,63 @@ function ProductCatalog({ onAddToToa }) {
   );
 }
 
-// ─── OrderForm chính ──────────────────────────────────────────────────────────
+// ─── Dropdown tìm kiếm hàng ngay trong 1 dòng bảng (giống MISA) ──────────────
+// Dùng cho cả ô Mã hàng và ô Tên hàng hiển thị: gõ mã hoặc tên đều tìm được,
+// chọn 1 item trong dropdown sẽ fill toàn bộ dòng (qua onSelectProduct), nhưng
+// vẫn cho user gõ tự do nếu không chọn gì từ dropdown.
+function RowProductSearch({ value, placeholder, onChangeText, onSelectProduct, style }) {
+  const [options, setOptions] = useState([]);
+  const timer = useRef(null);
+
+  function handleSearch(text) {
+    onChangeText(text);
+    clearTimeout(timer.current);
+    if (!text || !text.trim()) { setOptions([]); return; }
+    timer.current = setTimeout(async () => {
+      try {
+        const res = await searchProducts(text);
+        setOptions(res.map(p => ({
+          value: p.ma_hang,
+          product: p,
+          label: (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span>
+                <Text code style={{ fontSize: 11 }}>{p.ma_hang}</Text>
+                <Text style={{ marginLeft: 6, fontSize: 12 }}>{p.ten_hang}</Text>
+              </span>
+              {p.gia_von ? (
+                <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                  Vốn: {formatMoney(p.gia_von)}
+                </Text>
+              ) : null}
+            </div>
+          ),
+        })));
+      } catch { setOptions([]); }
+    }, 280);
+  }
+
+  function handleSelect(_, opt) {
+    if (opt?.product) onSelectProduct(opt.product);
+    setOptions([]);
+  }
+
+  return (
+    <AutoComplete
+      value={value}
+      options={options}
+      onSearch={handleSearch}
+      onSelect={handleSelect}
+      onChange={onChangeText}
+      placeholder={placeholder}
+      size="small"
+      style={style || { width: '100%' }}
+      popupMatchSelectWidth={320}
+    />
+  );
+}
+
+
 export default function OrderForm({ initialData, onSaved, onCancel }) {
   const [form] = Form.useForm();
   const [details, setDetails]           = useState([]);
@@ -159,7 +215,10 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
   const [savedOrder, setSavedOrder]     = useState(null);
   const [ndGuiKhach, setNdGuiKhach]     = useState('');
   const fileRef = useRef();
-  const isEdit  = !!initialData;
+  // Theo dõi mã toa đã lưu — null nếu chưa lưu lần nào (tạo mới), có giá trị nếu
+  // đang sửa toa cũ HOẶC vừa tạo mới xong (để chuyển sang chế độ Cập nhật ngay,
+  // không cần đóng form mở lại bằng nút Sửa).
+  const [savedMaToa, setSavedMaToa] = useState(initialData?.ma_toa || null);
 
   useEffect(() => {
     getHistoryStats().then(setHistoryStats).catch(() => {});
@@ -194,6 +253,8 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
     } else {
       form.setFieldsValue({ ngay_tao: dayjs() });
       fetchNextCode(dayjs());
+      // Mở form tạo mới — có sẵn 2 dòng trống để nhập nhanh, không để bảng trống hoàn toàn
+      setDetails([makeEmptyRow(), makeEmptyRow()]);
     }
   }, [initialData]);
 
@@ -266,13 +327,18 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
     message.success(`Đã thêm: ${p.ten_hang}`);
   }
 
-  // Thêm dòng thủ công trống
-  function addManualRow() {
-    setDetails(prev => [...prev, {
-      key: Date.now(), ma_hang: '', ten_hang: '', ten_hang_hien_thi: '',
+  // Dòng trống mẫu — dùng chung cho "Thêm dòng thủ công" và 2 dòng mặc định khi tạo mới
+  function makeEmptyRow() {
+    return {
+      key: Date.now() + Math.random(), ma_hang: '', ten_hang: '', ten_hang_hien_thi: '',
       kho: '', ton_kho: null, gia_von: null, so_luong: 1, don_gia_ban: 0,
       hang_san_xuat: '', nha_cung_cap: '', dvt: '', ghi_chu: ''
-    }]);
+    };
+  }
+
+  // Thêm dòng thủ công trống
+  function addManualRow() {
+    setDetails(prev => [...prev, makeEmptyRow()]);
   }
 
   function removeRow(key) {
@@ -283,12 +349,49 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
     setDetails(prev => prev.map(d => d.key === key ? { ...d, [field]: val } : d));
   }
 
+  // Chọn hàng từ dropdown tìm kiếm ở 1 dòng — tự fill các trường còn lại.
+  // Map linh hoạt theo field cache hiện có; field nào cache chưa có thì giữ nguyên giá trị cũ của dòng.
+  // Không ghi đè don_gia_ban (giá bán) — đó là giá user tự quyết định khi bán cho khách.
+  function fillRowFromProduct(key, p) {
+    setDetails(prev => prev.map(d => {
+      if (d.key !== key) return d;
+      const dvt = p.dvt || p.don_vi_tinh || p.unit || d.dvt;
+      const nsx = p.hang_san_xuat || p.nsx || d.hang_san_xuat;
+      const ncc = p.nha_cung_cap || p.ncc || d.nha_cung_cap;
+      return {
+        ...d,
+        ma_hang:           p.ma_hang,
+        ten_hang:          p.ten_hang,
+        // Tên hiển thị: nếu user chưa tự sửa khác tên MISA gốc thì cập nhật theo hàng mới chọn;
+        // nếu user đã gõ tên riêng rồi thì giữ nguyên (không ghi đè công sức đã nhập).
+        ten_hang_hien_thi: (!d.ten_hang_hien_thi || d.ten_hang_hien_thi === d.ten_hang) ? p.ten_hang : d.ten_hang_hien_thi,
+        kho:               p.kho ?? d.kho,
+        ton_kho:           p.ton_kho ?? d.ton_kho,
+        gia_von:           p.gia_von ?? d.gia_von,
+        hang_san_xuat:     nsx || '',
+        nha_cung_cap:      ncc || '',
+        dvt:               dvt || '',
+      };
+    }));
+  }
+
   async function handleSave() {
     try {
       const values = await form.validateFields();
       if (details.length === 0) { message.error('Chưa có mặt hàng nào'); return; }
-      const emptyRows = details.filter(d => !(d.ten_hang_hien_thi || d.ten_hang) || !d.so_luong);
-      if (emptyRows.length > 0) { message.error('Có dòng chưa điền đầy đủ tên hàng / số lượng'); return; }
+
+      // Lọc dòng hợp lệ: có mã hàng HOẶC tên hàng HOẶC số lượng/đơn giá > 0.
+      // Dòng hoàn toàn trống (vd 2 dòng mặc định chưa nhập) sẽ tự bỏ qua, không lưu xuống DB.
+      const validDetails = details.filter(d =>
+        (d.ma_hang && d.ma_hang.trim()) ||
+        (d.ten_hang_hien_thi && d.ten_hang_hien_thi.trim()) ||
+        (d.ten_hang && d.ten_hang.trim()) ||
+        parseFloat(d.so_luong || 0) > 0 ||
+        parseFloat(d.don_gia_ban || 0) > 0
+      );
+      if (validDetails.length === 0) { message.error('Chưa có mặt hàng nào'); return; }
+      const invalidRows = validDetails.filter(d => !(d.ten_hang_hien_thi || d.ten_hang) || !d.so_luong);
+      if (invalidRows.length > 0) { message.error('Có dòng chưa điền đầy đủ tên hàng / số lượng'); return; }
 
       setLoading(true);
       const payload = {
@@ -301,7 +404,7 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         dia_chi:      values.dia_chi      || '',
         noi_gui_hang: values.noi_gui_hang || '',
         ghi_chu:      values.ghi_chu      || '',
-        details: details.map(d => ({
+        details: validDetails.map(d => ({
           ma_hang:           d.ma_hang,
           ten_hang:          d.ten_hang,
           ten_hang_hien_thi: d.ten_hang_hien_thi || d.ten_hang,
@@ -318,13 +421,16 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
       };
 
       let maDon = values.ma_don;
-      if (isEdit) {
-        const res = await updateOrder(initialData.ma_toa, payload);
+      if (savedMaToa) {
+        // Đã từng lưu (đang sửa toa cũ, hoặc vừa tạo mới xong ở lượt Lưu trước) → Cập nhật
+        const res = await updateOrder(savedMaToa, payload);
         maDon = res?.ma_don || maDon;
         message.success('Đã cập nhật phiếu');
       } else {
+        // Lần lưu đầu tiên cho toa mới → Tạo mới, sau đó chuyển luôn sang chế độ Cập nhật
         const res = await createOrder(payload);
         maDon = res?.ma_don || maDon;
+        setSavedMaToa(values.ma_toa);
         message.success(`Đã tạo phiếu ${values.ma_toa}`);
       }
 
@@ -339,7 +445,7 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         noi_gui_hang: values.noi_gui_hang || '',
         ghi_chu:      values.ghi_chu      || '',
         ngay_tao:     values.ngay_tao?.format('YYYY-MM-DD'),
-        details,
+        details: validDetails,
       };
       setSavedOrder(savedInfo);
       setNdGuiKhach(generateNdGuiKhach(savedInfo));
@@ -395,39 +501,29 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
   // Columns editable table
   const toaColumns = [
     {
+      title: 'Mã hàng',
+      width: 150,
+      render: (_, row) => (
+        <RowProductSearch
+          value={row.ma_hang}
+          placeholder="Mã hàng..."
+          onChangeText={v => updateRow(row.key, 'ma_hang', v)}
+          onSelectProduct={p => fillRowFromProduct(row.key, p)}
+        />
+      ),
+    },
+    {
       title: 'Tên hàng hiển thị',
       width: 220,
       render: (_, row) => (
         <div>
-          <Input
-            size="small"
+          <RowProductSearch
             value={row.ten_hang_hien_thi}
             placeholder="Tên hàng..."
-            onChange={e => updateRow(row.key, 'ten_hang_hien_thi', e.target.value)}
-            style={{ fontWeight: 500 }}
+            onChangeText={v => updateRow(row.key, 'ten_hang_hien_thi', v)}
+            onSelectProduct={p => fillRowFromProduct(row.key, p)}
+            style={{ width: '100%', fontWeight: 500 }}
           />
-          {row.ma_hang && (
-            <div style={{ marginTop: 2 }}>
-              <Input
-                size="small"
-                value={row.ma_hang}
-                placeholder="Mã hàng..."
-                onChange={e => updateRow(row.key, 'ma_hang', e.target.value)}
-                style={{ fontSize: 11, color: '#888' }}
-              />
-            </div>
-          )}
-          {!row.ma_hang && (
-            <div style={{ marginTop: 2 }}>
-              <Input
-                size="small"
-                value={row.ma_hang}
-                placeholder="Mã hàng (nếu có)..."
-                onChange={e => updateRow(row.key, 'ma_hang', e.target.value)}
-                style={{ fontSize: 11 }}
-              />
-            </div>
-          )}
           {row.ten_hang && row.ten_hang !== row.ten_hang_hien_thi && (
             <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 1 }}>
               MISA: {row.ten_hang}
@@ -477,7 +573,28 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
       ),
     },
     {
-      title: 'Đơn giá', width: 120,
+      title: (
+        <span>
+          Giá vốn
+          <Tooltip title="Giá mua / giá nhà cung cấp — không in lên phiếu khách">
+            <Text type="secondary" style={{ fontSize: 10, marginLeft: 3 }}>?</Text>
+          </Tooltip>
+        </span>
+      ),
+      width: 110,
+      render: (_, row) => (
+        <InputNumber
+          min={0} step={1000} size="small" value={row.gia_von}
+          formatter={v => v ? Number(v).toLocaleString('vi-VN') : ''}
+          parser={v => v.replace(/[^\d]/g, '')}
+          onChange={v => updateRow(row.key, 'gia_von', v)}
+          style={{ width: '100%' }}
+          placeholder="Giá vốn"
+        />
+      ),
+    },
+    {
+      title: 'Đơn giá bán', width: 120,
       render: (_, row) => (
         <InputNumber
           min={0} step={1000} size="small" value={row.don_gia_ban}
@@ -619,8 +736,8 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         pagination={false}
         size="small"
         rowKey="key"
-        scroll={{ x: 1100 }}
-        locale={{ emptyText: 'Tìm hàng ở trên hoặc nhấn "Thêm dòng" để nhập thủ công' }}
+        scroll={{ x: 1250 }}
+        locale={{ emptyText: 'Gõ mã hàng hoặc tên hàng ngay trong dòng để tìm, hoặc nhấn "Thêm dòng thủ công"' }}
         style={{ marginBottom: 8 }}
         footer={() => (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -640,7 +757,7 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <Space wrap>
           <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={handleSave} size="large">
-            {isEdit ? 'Cập nhật phiếu' : 'Lưu phiếu xuất'}
+            {savedMaToa ? 'Cập nhật phiếu' : 'Lưu phiếu xuất'}
           </Button>
           {onCancel && <Button onClick={onCancel}>Hủy</Button>}
         </Space>

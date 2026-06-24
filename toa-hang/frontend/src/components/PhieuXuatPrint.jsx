@@ -256,6 +256,12 @@ export function PhieuXuatTemplate({ order }) {
           <span style={styles.customerLabel}>Giao hàng tại: </span>
           <span style={styles.customerValue}>{order.noi_gui_hang || ''}</span>
         </div>
+        {order.ghi_chu && (
+          <div style={styles.customerLine}>
+            <span style={styles.customerLabel}>Ghi chú: </span>
+            <span style={styles.customerValue}>{order.ghi_chu}</span>
+          </div>
+        )}
       </div>
 
       {/* Bảng hàng hóa */}
