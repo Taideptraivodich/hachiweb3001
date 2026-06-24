@@ -32,7 +32,7 @@ const TOTAL_BG = '#f5f5f5';
 // ── Styles nhúng thẳng vào component (tránh bị Ant Design override) ──────────
 const styles = {
   wrapper: {
-    fontFamily: 'Arial, "Times New Roman", sans-serif',
+    fontFamily: 'Arial, Helvetica, sans-serif',
     fontSize: '13px',
     color: '#111',
     background: '#fff',
@@ -41,14 +41,17 @@ const styles = {
     padding: '12mm 16mm',
     boxSizing: 'border-box',
     position: 'relative',
+    fontSynthesis: 'none',
+    WebkitFontSmoothing: 'antialiased',
+    textRendering: 'optimizeLegibility',
   },
   companyName: {
     fontSize: '20px',
-    fontWeight: '800',
+    fontWeight: '700',
     color: DARK_SLATE,
     textTransform: 'uppercase',
     textAlign: 'center',
-    letterSpacing: '0.3px',
+    letterSpacing: '0',
     marginBottom: '10px',
   },
   headerRow: {
@@ -79,8 +82,8 @@ const styles = {
   },
   titleMain: {
     fontSize: '24px',
-    fontWeight: '800',
-    letterSpacing: '0.5px',
+    fontWeight: '700',
+    letterSpacing: '0',
     textTransform: 'uppercase',
     color: DARK_SLATE,
   },
