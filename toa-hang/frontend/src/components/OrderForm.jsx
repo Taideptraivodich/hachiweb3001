@@ -341,6 +341,30 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
     setDetails(prev => [...prev, makeEmptyRow()]);
   }
 
+  // Dòng trống hoàn toàn: không có mã/tên/NSX/NCC/ĐVT/ghi chú, giá vốn = 0, đơn giá bán = 0.
+  // SL mặc định (vd 1) KHÔNG được tính là "có dữ liệu" — chỉ là giá trị mặc định của dòng mẫu.
+  // Dòng có bất kỳ text nào hoặc giá > 0 thì coi là dòng nhập dở, không được tự xóa.
+  function isEmptyDetailRow(row) {
+    const hasText =
+      String(row.ma_hang || '').trim() ||
+      String(row.ten_hang_hien_thi || '').trim() ||
+      String(row.ten_hang || '').trim() ||
+      String(row.hang_san_xuat || '').trim() ||
+      String(row.nha_cung_cap || '').trim() ||
+      String(row.dvt || '').trim() ||
+      String(row.ghi_chu || '').trim();
+
+    const giaVon = Number(row.gia_von || 0);
+    const donGia = Number(row.don_gia_ban || 0);
+
+    return !hasText && giaVon === 0 && donGia === 0;
+  }
+
+  // Dòng hàng "sạch" — bỏ các dòng trống hoàn toàn, dùng cho save / in / copy / tải ảnh
+  function getCleanDetails() {
+    return details.filter(row => !isEmptyDetailRow(row));
+  }
+
   function removeRow(key) {
     setDetails(prev => prev.filter(d => d.key !== key));
   }
@@ -380,18 +404,16 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
       const values = await form.validateFields();
       if (details.length === 0) { message.error('Chưa có mặt hàng nào'); return; }
 
-      // Lọc dòng hợp lệ: có mã hàng HOẶC tên hàng HOẶC số lượng/đơn giá > 0.
-      // Dòng hoàn toàn trống (vd 2 dòng mặc định chưa nhập) sẽ tự bỏ qua, không lưu xuống DB.
-      const validDetails = details.filter(d =>
-        (d.ma_hang && d.ma_hang.trim()) ||
-        (d.ten_hang_hien_thi && d.ten_hang_hien_thi.trim()) ||
-        (d.ten_hang && d.ten_hang.trim()) ||
-        parseFloat(d.so_luong || 0) > 0 ||
-        parseFloat(d.don_gia_ban || 0) > 0
-      );
-      if (validDetails.length === 0) { message.error('Chưa có mặt hàng nào'); return; }
-      const invalidRows = validDetails.filter(d => !(d.ten_hang_hien_thi || d.ten_hang) || !d.so_luong);
-      if (invalidRows.length > 0) { message.error('Có dòng chưa điền đầy đủ tên hàng / số lượng'); return; }
+      // Lọc dòng trống hoàn toàn (vd dòng mẫu mặc định chưa nhập) — không tính SL mặc định
+      // là "có dữ liệu". Chỉ validate trên dòng đã có dữ liệu thật (dòng nhập dở vẫn báo lỗi).
+      const cleanDetails = getCleanDetails();
+      if (cleanDetails.length === 0) { message.error('Phiếu cần ít nhất 1 dòng hàng'); return; }
+      const invalidRow = cleanDetails.find(d => {
+        const ten = String(d.ten_hang_hien_thi || d.ten_hang || '').trim();
+        const sl  = Number(d.so_luong || 0);
+        return !ten || sl <= 0;
+      });
+      if (invalidRow) { message.error('Có dòng chưa điền đầy đủ tên hàng / số lượng'); return; }
 
       setLoading(true);
       const payload = {
@@ -404,7 +426,7 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         dia_chi:      values.dia_chi      || '',
         noi_gui_hang: values.noi_gui_hang || '',
         ghi_chu:      values.ghi_chu      || '',
-        details: validDetails.map(d => ({
+        details: cleanDetails.map(d => ({
           ma_hang:           d.ma_hang,
           ten_hang:          d.ten_hang,
           ten_hang_hien_thi: d.ten_hang_hien_thi || d.ten_hang,
@@ -445,10 +467,12 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
         noi_gui_hang: values.noi_gui_hang || '',
         ghi_chu:      values.ghi_chu      || '',
         ngay_tao:     values.ngay_tao?.format('YYYY-MM-DD'),
-        details: validDetails,
+        details: cleanDetails,
       };
       setSavedOrder(savedInfo);
       setNdGuiKhach(generateNdGuiKhach(savedInfo));
+      // Xóa dòng trống khỏi table sau khi lưu/cập nhật thành công
+      setDetails(cleanDetails);
 
       // Chỉ refresh danh sách bên ngoài, KHÔNG đóng drawer
       onSaved?.(savedInfo);
@@ -472,7 +496,7 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
       ten_kh:       values.ten_kh || '',
       noi_gui_hang: values.noi_gui_hang || '',
       ghi_chu:      values.ghi_chu || '',
-      details,
+      details:      getCleanDetails(),
     });
     navigator.clipboard.writeText(text).then(() =>
       message.success('Đã copy toa hàng text')
