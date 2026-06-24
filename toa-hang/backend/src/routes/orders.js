@@ -48,6 +48,37 @@ router.get('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Export: trả flat rows join orders + order_details, theo filter, không phân trang
+router.get('/export-data', async (req, res) => {
+  try {
+    const db = await getDb();
+    const { q, status, from, to } = req.query;
+    let where = ['1=1'], params = {};
+    if (q)      { where.push(`(o.ma_toa LIKE $q OR o.ten_kh LIKE $q OR o.ma_kh LIKE $q)`); params.$q = `%${q}%`; }
+    if (status) { where.push(`o.trang_thai = $status`); params.$status = status; }
+    if (from)   { where.push(`o.ngay_tao >= $from`);   params.$from = from; }
+    if (to)     { where.push(`o.ngay_tao <= $to`);     params.$to = to; }
+    const whereStr = where.join(' AND ');
+    const rows = dbQuery(db,
+      `SELECT
+        o.ma_don, o.ma_kh, o.ten_kh,
+        o.ghi_chu AS ghi_chu_phieu,
+        o.created_at, o.updated_at,
+        d.ma_hang, d.ten_hang, d.ten_hang_hien_thi,
+        d.hang_san_xuat, d.nha_cung_cap, d.dvt,
+        d.gia_von, d.don_gia_ban, d.so_luong,
+        d.ghi_chu AS ghi_chu_dong
+      FROM orders o
+      JOIN order_details d ON d.order_id = o.id
+      WHERE ${whereStr}
+      ORDER BY o.created_at DESC, o.id, d.sort_order, d.id`,
+      params
+    );
+    db.close();
+    res.json({ data: rows, total: rows.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/:ma_toa', async (req, res) => {
   try {
     const db    = await getDb();

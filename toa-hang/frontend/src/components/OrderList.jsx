@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getOrders, getOrder, updateOrderStatus, deleteOrder } from '../api';
+import { exportOrdersExcel } from '../utils/exportOrdersExcel';
 import { formatMoney, STATUS_COLOR, generateTextToa, generateNdGuiKhach, calcTotal } from '../utils';
 import OrderForm from './OrderForm';
 import PhieuXuatActions from './PhieuXuatPrint';
@@ -33,6 +34,7 @@ export default function OrderList() {
   const [createOpen, setCreate]      = useState(false);
   const [actionOrder, setActionOrder] = useState(null);
   const [actionOpen, setActionOpen]  = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   useEffect(() => { loadOrders(); }, [page, filters]);
 
@@ -91,6 +93,29 @@ export default function OrderList() {
   async function handleCopyFull(ma_toa) {
     const data = await getOrder(ma_toa);
     handleCopyText(data);
+  }
+
+  async function handleExport() {
+    setExportLoading(true);
+    try {
+      const res = await fetch(
+        '/api/orders/export-data?' + new URLSearchParams(
+          Object.fromEntries(Object.entries(filters).filter(([,v]) => v != null && v !== ''))
+        )
+      );
+      if (!res.ok) throw new Error('Export thất bại');
+      const json = await res.json();
+      if (!json.data?.length) {
+        message.warning('Không có dữ liệu để xuất');
+        return;
+      }
+      exportOrdersExcel(json.data, { from: filters.from, to: filters.to });
+      message.success(`Đã xuất ${json.data.length} dòng`);
+    } catch (e) {
+      message.error('Xuất Excel thất bại: ' + e.message);
+    } finally {
+      setExportLoading(false);
+    }
   }
 
   const columns = [
@@ -200,11 +225,11 @@ export default function OrderList() {
           onClick={() => { setEditData(null); setCreate(true); }}>
           Tạo phiếu mới
         </Button>
-        <Tooltip title="Sắp có: export danh sách phiếu theo bộ lọc hiện tại">
-          <Button icon={<FileExcelOutlined />} disabled>
-            Export Excel danh sách
-          </Button>
-        </Tooltip>
+        <Button icon={<FileExcelOutlined />}
+          loading={exportLoading}
+          onClick={handleExport}>
+          Export Excel danh sách
+        </Button>
       </div>
 
       <Table
