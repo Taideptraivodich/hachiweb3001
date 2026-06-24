@@ -7,7 +7,7 @@ router.get('/', async (req, res) => {
   try {
     const db = await getDb();
     const q  = `%${req.query.q || ''}%`;
-    const rows = dbQuery(db, `SELECT ma_hang, ten_hang, kho, ton_kho, gia_von FROM product_cache WHERE (ma_hang LIKE $q OR ten_hang LIKE $q) ORDER BY ten_hang LIMIT 30`, { $q: q });
+    const rows = dbQuery(db, `SELECT ma_hang, ten_hang, kho, dvt, ton_kho, gia_von FROM product_cache WHERE (ma_hang LIKE $q OR ten_hang LIKE $q) ORDER BY ten_hang LIMIT 30`, { $q: q });
     db.close();
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
 router.get('/all', async (req, res) => {
   try {
     const db   = await getDb();
-    const rows = dbQuery(db, `SELECT ma_hang, ten_hang, kho, ton_kho, gia_von FROM product_cache ORDER BY ten_hang`);
+    const rows = dbQuery(db, `SELECT ma_hang, ten_hang, kho, dvt, ton_kho, gia_von FROM product_cache ORDER BY ten_hang`);
     db.close();
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }

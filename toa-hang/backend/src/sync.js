@@ -29,15 +29,17 @@ async function syncProducts() {
     const misa   = await getMisaPool();
     const result = await misa.request().query(`
       SELECT
-        InventoryItemCode                         AS ma_hang,
-        InventoryItemName                         AS ten_hang,
-        StockName                                 AS kho,
-        SUM(InwardQuantity - OutwardQuantity)     AS ton_kho,
-        MAX(MainUnitPrice)                        AS gia_von
-      FROM InventoryLedger
-      GROUP BY InventoryItemCode, InventoryItemName, StockName
-      HAVING SUM(InwardQuantity - OutwardQuantity) > 0
-      ORDER BY InventoryItemCode
+        il.InventoryItemCode                         AS ma_hang,
+        il.InventoryItemName                         AS ten_hang,
+        il.StockName                                 AS kho,
+        MAX(u.UnitName)                              AS dvt,
+        SUM(il.InwardQuantity - il.OutwardQuantity)  AS ton_kho,
+        MAX(il.MainUnitPrice)                        AS gia_von
+      FROM InventoryLedger il
+      LEFT JOIN Unit u ON u.UnitID = il.UnitID
+      GROUP BY il.InventoryItemCode, il.InventoryItemName, il.StockName
+      HAVING SUM(il.InwardQuantity - il.OutwardQuantity) > 0
+      ORDER BY il.InventoryItemCode
     `);
 
     const db  = await getDb();
@@ -47,13 +49,13 @@ async function syncProducts() {
     for (const row of result.recordset) {
       if (!row.ma_hang) continue;
       db.run(`
-        INSERT INTO product_cache (ma_hang, ten_hang, kho, ton_kho, gia_von, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO product_cache (ma_hang, ten_hang, kho, dvt, ton_kho, gia_von, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(ma_hang) DO UPDATE SET
-          ten_hang=excluded.ten_hang, kho=excluded.kho,
+          ten_hang=excluded.ten_hang, kho=excluded.kho, dvt=excluded.dvt,
           ton_kho=excluded.ton_kho, gia_von=excluded.gia_von,
           updated_at=excluded.updated_at
-      `, [row.ma_hang, row.ten_hang||'', row.kho||'', row.ton_kho||0, row.gia_von||0, now]);
+      `, [row.ma_hang, row.ten_hang||'', row.kho||'', row.dvt||'', row.ton_kho||0, row.gia_von||0, now]);
       count++;
     }
 

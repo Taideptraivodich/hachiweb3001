@@ -207,6 +207,9 @@ async function setupDatabase() {
   // orders: bổ sung SĐT và địa chỉ khách để điền vào phiếu xuất
   addColumnIfMissing('orders', 'sdt',     "TEXT DEFAULT ''");
   addColumnIfMissing('orders', 'dia_chi', "TEXT DEFAULT ''");
+  // product_cache: bổ sung ĐVT (lấy từ MISA Unit.UnitName qua InventoryLedger.UnitID)
+  // để OrderForm tự fill ĐVT khi chọn hàng từ dropdown — chỉ là cache SQLite của app.
+  addColumnIfMissing('product_cache', 'dvt', "TEXT DEFAULT ''");
 
   // Backfill ma_don cho các toa cũ đã có, suy từ ma_toa dạng "NN.DDMMYY" → "DDMMYYHCNN"
   const oldOrders = [];
