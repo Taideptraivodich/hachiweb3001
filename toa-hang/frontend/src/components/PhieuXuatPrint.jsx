@@ -33,7 +33,7 @@ const TOTAL_BG = '#f5f5f5';
 const styles = {
   wrapper: {
     fontFamily: 'Arial, Helvetica, sans-serif',
-    fontSize: '13px',
+    fontSize: '15px',
     color: '#111',
     background: '#fff',
     width: '297mm',
@@ -67,7 +67,7 @@ const styles = {
     flexShrink: 0,
   },
   companyMeta: {
-    fontSize: '12px',
+    fontSize: '14px',
     color: '#222',
     lineHeight: '1.7',
     paddingTop: '4px',
@@ -88,12 +88,12 @@ const styles = {
     color: DARK_SLATE,
   },
   titleSub: {
-    fontSize: '13px',
+    fontSize: '15px',
     color: '#000',
     marginTop: '8px',
   },
   titleMaDon: {
-    fontSize: '13px',
+    fontSize: '15px',
     color: '#000',
     marginTop: '2px',
   },
@@ -102,7 +102,7 @@ const styles = {
     lineHeight: '1.7',
   },
   customerLine: {
-    fontSize: '13px',
+    fontSize: '15px',
   },
   customerLabel: {
     color: ACCENT_BLUE,
@@ -120,7 +120,7 @@ const styles = {
     width: '100%',
     borderCollapse: 'collapse',
     marginBottom: '10px',
-    fontSize: '12.5px',
+    fontSize: '14.5px',
   },
   thCell: {
     background: HEADER_BG,
@@ -154,7 +154,7 @@ const styles = {
     padding: '7px 8px',
     textAlign: 'right',
     fontWeight: '700',
-    fontSize: '12.5px',
+    fontSize: '14.5px',
     color: '#111',
   },
   totalValueCell: {
@@ -163,11 +163,11 @@ const styles = {
     padding: '7px 8px',
     textAlign: 'right',
     fontWeight: '700',
-    fontSize: '12.5px',
+    fontSize: '14.5px',
     color: '#111',
   },
   note: {
-    fontSize: '12px',
+    fontSize: '14px',
     color: '#111',
     fontStyle: 'normal',
     marginBottom: '30px',
@@ -181,7 +181,7 @@ const styles = {
   },
   signatureCell: {
     flex: 1,
-    fontSize: '13px',
+    fontSize: '15px',
     color: '#111',
   },
   signatureLabel: {
@@ -189,7 +189,7 @@ const styles = {
     marginBottom: '2px',
   },
   signatureNote: {
-    fontSize: '12px',
+    fontSize: '14px',
     color: '#333',
     fontStyle: 'normal',
   },
@@ -284,10 +284,10 @@ export function PhieuXuatTemplate({ order }) {
             return (
               <tr key={d.id || i}>
                 <td style={styles.tdCenter}>{i + 1}</td>
-                <td style={{ ...styles.tdCell, fontSize: '12px', fontFamily: 'monospace' }}>
+                <td style={{ ...styles.tdCell, fontSize: '14px', fontFamily: 'monospace' }}>
                   {d.ma_hang || ''}
                 </td>
-                <td style={styles.tdCenter}>{d.hang_san_xuat || ''}</td>
+                <td style={styles.tdCell}>{d.hang_san_xuat || ''}</td>
                 <td style={styles.tdCell}>{tenHien}</td>
                 <td style={styles.tdCenter}>{d.dvt || ''}</td>
                 <td style={styles.tdRight}>{d.don_gia_ban ? formatMoney(d.don_gia_ban) : ''}</td>
