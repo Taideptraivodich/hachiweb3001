@@ -22,6 +22,22 @@ import PhieuXuatActions from './PhieuXuatPrint';
 const { Text, Title } = Typography;
 const { TextArea } = Input;
 
+// Normalize tiếng Việt: bỏ dấu, Đ→d, lowercase — dùng cho search/filter
+const normalizeText = (v) =>
+  String(v || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase()
+    .trim();
+
+// Parse mã đơn từ mã toa dạng NN.DDMMYY → DDMMYYHCNN
+const parseMaDonFromMaToa = (maToa) => {
+  const m = String(maToa || '').trim().match(/^(\d{1,3})\.(\d{6})$/);
+  if (!m) return '';
+  return `${m[2]}HC${m[1].padStart(2, '0')}`;
+};
+
 // ─── Catalog: tìm kiếm hàng MISA ─────────────────────────────────────────────
 function ProductCatalog({ onAddToToa }) {
   const [query, setQuery]       = useState('');
@@ -161,7 +177,12 @@ function RowProductSearch({ value, placeholder, onChangeText, onSelectProduct, s
     timer.current = setTimeout(async () => {
       try {
         const res = await searchProducts(text);
-        setOptions(res.map(p => ({
+        const q = normalizeText(text);
+        const filtered = res.filter(p =>
+          normalizeText(p.ma_hang).includes(q) ||
+          normalizeText(p.ten_hang).includes(q)
+        );
+        setOptions(filtered.map(p => ({
           value: p.ma_hang,
           product: p,
           label: (
@@ -279,7 +300,12 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
   async function handleCustomerSearch(val) {
     if (!val || val.length < 1) return;
     const items = await searchCustomers(val);
-    setCustomerOpts(items.map(c => ({
+    const q = normalizeText(val);
+    const filtered = items.filter(c =>
+      normalizeText(c.ten_kh).includes(q) ||
+      normalizeText(c.ma_kh).includes(q)
+    );
+    setCustomerOpts(filtered.map(c => ({
       value: c.ten_kh,
       label: `${c.ten_kh} (${c.ma_kh})`,
       customer: c,
@@ -700,7 +726,13 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
             <Col xs={24} sm={4}>
               <Form.Item name="ma_toa" label="Mã toa (nội bộ)"
                 rules={[{ required: true, message: 'Cần mã toa' }]}>
-                <Input style={{ width: '100%' }} />
+                <Input
+                  style={{ width: '100%' }}
+                  onChange={e => {
+                    const parsed = parseMaDonFromMaToa(e.target.value);
+                    if (parsed) form.setFieldValue('ma_don', parsed);
+                  }}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} sm={4}>
@@ -718,6 +750,9 @@ export default function OrderForm({ initialData, onSaved, onCancel }) {
                   placeholder="Tìm khách hàng..."
                   style={{ width: '100%' }}
                   onChange={refreshNdGuiKhach}
+                  filterOption={(input, opt) =>
+                    normalizeText(opt?.label).includes(normalizeText(input))
+                  }
                 />
               </Form.Item>
             </Col>
