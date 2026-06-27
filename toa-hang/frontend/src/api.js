@@ -31,8 +31,12 @@ export const getReportSummary = (params) =>
   api.get('/reports/summary', { params }).then(r => r.data);
 export const getTopProducts = (params) =>
   api.get('/reports/top-products', { params }).then(r => r.data);
+export const getTopCustomers = (params) =>
+  api.get('/reports/top-customers', { params }).then(r => r.data);
 export const getDailyReport = (params) =>
   api.get('/reports/daily', { params }).then(r => r.data);
+export const getOrderDetailsReport = (params) =>
+  api.get('/reports/order-details', { params }).then(r => r.data);
 export const getProductHistory = (ma_hang) =>
   api.get(`/reports/product/${ma_hang}`).then(r => r.data);
 export const getCustomerHistory = (ma_kh) =>
