@@ -1,5 +1,32 @@
 import axios from 'axios';
+import { getStoredToken } from './context/AuthContext';
+
 const api = axios.create({ baseURL: '/api' });
+
+// Gắn JWT vào mọi request
+api.interceptors.request.use((config) => {
+  const token = getStoredToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+// Token hết hạn / không hợp lệ → xoá và reload để App hiện lại màn hình Login
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && !err.config?.url?.includes('/auth/login')) {
+      localStorage.removeItem('toahang_token');
+      localStorage.removeItem('toahang_token_exp');
+      window.location.reload();
+    }
+    return Promise.reject(err);
+  }
+);
+
+// Auth
+export const login = (username, password) =>
+  api.post('/auth/login', { username, password }).then(r => r.data);
+
 // Products
 export const searchProducts = (q) =>
   api.get('/products', { params: { q } }).then(r => r.data);

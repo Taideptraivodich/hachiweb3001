@@ -4,6 +4,7 @@ import {
   FileTextOutlined, BarChartOutlined, ReloadOutlined,
   DatabaseOutlined, BankOutlined, InboxOutlined,
   SunOutlined, MoonOutlined, TagsOutlined, MenuOutlined, FileDoneOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 import OrderList from './components/OrderList';
 import Reports   from './components/Reports';
@@ -11,6 +12,8 @@ import CongNo    from './components/CongNo';
 import TonKho    from './components/TonKho';
 import MaNgoai   from './components/MaNgoai';
 import BangCongNo from './components/BangCongNo';
+import Login     from './components/Login';
+import { useAuth } from './context/AuthContext';
 import { syncAll } from './api';
 
 const { Header, Content, Sider } = Layout;
@@ -42,10 +45,25 @@ export default function App() {
   const [dark, setDark]         = useState(false);
   const [mobileMenuOpen, setMobileMenu] = useState(false);
   const isMobile = useIsMobile();
+  const { isAuthenticated, logout } = useAuth();
 
   useEffect(() => {
     document.body.classList.toggle('dark', dark);
   }, [dark]);
+
+  // Chưa đăng nhập → chỉ hiện màn hình Login, không load layout/dữ liệu chính
+  if (!isAuthenticated) {
+    return (
+      <ConfigProvider
+        theme={{
+          algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
+          token: { colorPrimary: '#1677ff' },
+        }}
+      >
+        <Login />
+      </ConfigProvider>
+    );
+  }
 
   async function handleSync() {
     setSyncing(true);
@@ -127,6 +145,13 @@ export default function App() {
               style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}
             >
               {isMobile ? '' : 'Sync MISA'}
+            </Button>
+            <Button
+              size="small" icon={<LogoutOutlined />}
+              onClick={logout}
+              style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}
+            >
+              {isMobile ? '' : 'Đăng xuất'}
             </Button>
           </Space>
         </Header>

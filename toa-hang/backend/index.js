@@ -14,12 +14,21 @@ const tonkhoRouter   = require('./src/routes/tonkho');
 
 const syncStatusRouter = require('./src/routes/sync_status');
 const bangCongNoRouter = require('./src/routes/bang_cong_no');
+const authRouter       = require('./src/routes/auth');
+const { requireAuth }  = require('./src/middleware/auth');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+// Auth & health check — KHÔNG yêu cầu đăng nhập
+app.use('/api/auth', authRouter);
+app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
+
+// Từ đây trở xuống, mọi route /api/* đều yêu cầu JWT hợp lệ
+app.use('/api', requireAuth);
 
 // API routes
 app.use('/api/products',  productsRouter);
@@ -31,9 +40,6 @@ app.use('/api/congno',    congnoRouter);
 app.use('/api/tonkho',   tonkhoRouter);
 app.use('/api/bang-cong-no', bangCongNoRouter);
 app.use('/api/sync',     syncStatusRouter);
-
-// Health check
-app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
 
 // Serve React build (production)
 app.use(express.static(path.join(__dirname, '../frontend/dist')));

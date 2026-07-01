@@ -5,6 +5,7 @@ import viVN from 'antd/locale/vi_VN'
 import dayjs from 'dayjs'
 import 'dayjs/locale/vi'
 import App from './App'
+import { AuthProvider } from './context/AuthContext'
 import './index.css'
 
 dayjs.locale('vi')
@@ -16,6 +17,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       borderRadius: 6,
     }
   }}>
-    <App />
+    <AuthProvider>
+      <App />
+    </AuthProvider>
   </ConfigProvider>
 )
