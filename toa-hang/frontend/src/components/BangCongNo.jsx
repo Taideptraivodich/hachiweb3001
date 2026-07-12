@@ -12,14 +12,13 @@ import {
   CloseCircleOutlined, ReloadOutlined, FileExcelOutlined, HistoryOutlined,
   CameraOutlined, DownloadOutlined,
 } from '@ant-design/icons';
-import axios from 'axios';
+import { apiClient as api } from '../api';
 import dayjs from 'dayjs';
 import 'dayjs/locale/vi';
 import { formatMoney } from '../utils';
 
 dayjs.locale('vi');
 
-const api = axios.create({ baseURL: '/api' });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtVND(n) {

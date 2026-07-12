@@ -8,13 +8,12 @@ import {
   EditOutlined, DeleteOutlined, CheckOutlined,
   QuestionCircleOutlined, InboxOutlined
 } from '@ant-design/icons';
-import axios from 'axios';
+import { apiClient as api } from '../api';
 import dayjs from 'dayjs';
 import { ChiTietPanel } from './TonKho';
 import { formatMoney } from '../utils';
 
 const { Text } = Typography;
-const api = axios.create({ baseURL: '/api' });
 
 // ── Màu nhà CC ───────────────────────────────────────────────────────────────
 const NHA_CC_COLOR = {

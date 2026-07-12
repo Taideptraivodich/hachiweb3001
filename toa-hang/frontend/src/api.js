@@ -2,6 +2,7 @@ import axios from 'axios';
 import { getStoredToken } from './context/AuthContext';
 
 const api = axios.create({ baseURL: '/api' });
+export { api as apiClient };
 
 // Gắn JWT vào mọi request
 api.interceptors.request.use((config) => {

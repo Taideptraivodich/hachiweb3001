@@ -8,7 +8,7 @@ import {
   InboxOutlined, CalendarOutlined, FileTextOutlined,
   WarningOutlined, BulbOutlined
 } from '@ant-design/icons';
-import axios from 'axios';
+import { apiClient as api } from '../api';
 import dayjs from 'dayjs';
 import 'dayjs/locale/vi';
 import quarterOfYear from 'dayjs/plugin/quarterOfYear';
@@ -19,7 +19,6 @@ dayjs.locale('vi');
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
-const api = axios.create({ baseURL: '/api' });
 
 // ─── Design tokens via CSS variables (dark/light tự động theo body.dark) ─────
 const C = {

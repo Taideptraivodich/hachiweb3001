@@ -8,7 +8,7 @@ import {
   UserOutlined, CalendarOutlined, FileTextOutlined,
   EyeInvisibleOutlined, EyeOutlined
 } from '@ant-design/icons';
-import axios from 'axios';
+import { apiClient as api } from '../api';
 import dayjs from 'dayjs';
 import 'dayjs/locale/vi';
 import { formatMoney } from '../utils';
@@ -17,7 +17,6 @@ dayjs.locale('vi');
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
-const api = axios.create({ baseURL: '/api' });
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const COLOR_NO  = '#cf1322';
