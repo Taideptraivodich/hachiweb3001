@@ -210,6 +210,10 @@ async function setupDatabase() {
   // product_cache: bổ sung ĐVT (lấy từ MISA Unit.UnitName qua InventoryLedger.UnitID)
   // để OrderForm tự fill ĐVT khi chọn hàng từ dropdown — chỉ là cache SQLite của app.
   addColumnIfMissing('product_cache', 'dvt', "TEXT DEFAULT ''");
+  // tonkho_cache: bổ sung đơn giá giao dịch mới nhất (đã cộng 8% VAT) để cột "Đơn giá"
+  // ở Tồn kho tổng vẫn hiển thị đúng khi fallback sang cache lúc MISA offline.
+  // CREATE TABLE mới đã có sẵn cột này, migration chỉ cần cho DB đang chạy trên VPS.
+  addColumnIfMissing('tonkho_cache', 'don_gia', 'REAL DEFAULT 0');
 
   // Backfill ma_don cho các toa cũ đã có, suy từ ma_toa dạng "NN.DDMMYY" → "DDMMYYHCNN"
   const oldOrders = [];

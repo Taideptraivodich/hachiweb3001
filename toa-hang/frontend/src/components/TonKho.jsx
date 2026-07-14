@@ -221,9 +221,10 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
           : (
             <div style={{ border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden' }}>
               <div ref={scrollRef} style={{ overflowY:'auto', overflowX:'auto', maxHeight:'calc(100vh - 370px)', overscrollBehavior:'none' }}>
-                <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed', minWidth:1050 }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed', minWidth:1190 }}>
                   <colgroup>
                     <col style={{width:130}}/><col style={{minWidth:220}}/><col style={{width:52}}/>
+                    <col style={{width:120}}/>
                     <col style={{width:75}}/><col style={{width:85}}/><col style={{width:125}}/>
                     <col style={{width:85}}/><col style={{width:125}}/><col style={{width:85}}/>
                     <col style={{width:130}}/><col style={{width:68}}/>
@@ -233,6 +234,9 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
                       <th onClick={() => toggleSort('ma_hang')}   style={thSort('ma_hang','left')}>Mã hàng {sortIcon('ma_hang')}</th>
                       <th onClick={() => toggleSort('ten_hang')}  style={thSort('ten_hang','left')}>Tên hàng {sortIcon('ten_hang')}</th>
                       <th style={{ ...thS(C,'center'), position:'sticky', top:0, zIndex:2 }}>ĐVT</th>
+                      <th onClick={() => toggleSort('don_gia')} style={thSort('don_gia')}>
+                        <Tooltip title="Đơn giá giao dịch mới nhất. Mặt hàng có thuế GTGT đã cộng thêm thuế suất thực tế; mặt hàng không thuế giữ nguyên giá mua.">Đơn giá</Tooltip> {sortIcon('don_gia')}
+                      </th>
                       <th onClick={() => toggleSort('dau_ky_sl')} style={thSort('dau_ky_sl')}>Đầu kỳ (SL) {sortIcon('dau_ky_sl')}</th>
                       <th onClick={() => toggleSort('nhap_sl')}   style={{ ...thSort('nhap_sl'), color:C.nhap }}>Nhập SL {sortIcon('nhap_sl')}</th>
                       <th onClick={() => toggleSort('nhap_gt')}   style={{ ...thSort('nhap_gt'), color:C.nhap }}>Nhập GT {sortIcon('nhap_gt')}</th>
@@ -244,7 +248,7 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
                     </tr>
                   </thead>
                   <tbody>
-                    {paddingTop > 0 && <tr><td colSpan={11} style={{ height:paddingTop, padding:0, border:'none' }} /></tr>}
+                    {paddingTop > 0 && <tr><td colSpan={12} style={{ height:paddingTop, padding:0, border:'none' }} /></tr>}
                     {visibleRows.map((r, _i) => {
                       const i = startIdx + _i;
                       const isCanhBao = Number(r.cuoi_ky_sl) <= 0;
@@ -262,6 +266,11 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
                             <span title={r.ten_hang} style={{ fontWeight:500 }}>{r.ten_hang}</span>
                           </td>
                           <td style={{ ...tdS(C,'center'), color:C.sub }}>{r.dvt || '—'}</td>
+                          <td style={tdS(C)}>
+                            {Number(r.don_gia)>0
+                              ? <span style={{ fontVariantNumeric:'tabular-nums' }}>{fmt(r.don_gia)}</span>
+                              : <span style={{ color:C.muted }}>—</span>}
+                          </td>
                           <td style={tdS(C)}>
                             {Number(r.dau_ky_sl)!==0
                               ? <span style={{ fontVariantNumeric:'tabular-nums' }}>{Number(r.dau_ky_sl).toLocaleString('vi-VN')}</span>
@@ -303,12 +312,12 @@ function TongHopTableInner({ data, danhSachKho, loading, onSelect, onFilter, fil
                         </tr>
                       );
                     })}
-                    {paddingBottom > 0 && <tr><td colSpan={11} style={{ height:paddingBottom, padding:0, border:'none' }} /></tr>}
+                    {paddingBottom > 0 && <tr><td colSpan={12} style={{ height:paddingBottom, padding:0, border:'none' }} /></tr>}
 
                   </tbody>
                   <tfoot>
                     <tr style={{ background:C.headerBg, fontWeight:700 }}>
-                      <td colSpan={3} style={{ ...tdS(C,'left'), borderTop:`2px solid ${C.border}`, fontSize:12, color:C.sub }}>
+                      <td colSpan={4} style={{ ...tdS(C,'left'), borderTop:`2px solid ${C.border}`, fontSize:12, color:C.sub }}>
                         Tổng cộng ({data.length} mặt hàng)
                       </td>
                       <td style={{ ...tdS(C), borderTop:`2px solid ${C.border}` }}>{totals.dau_ky_sl.toLocaleString('vi-VN')}</td>
@@ -496,7 +505,17 @@ export function ChiTietPanel({ hang, initialRange, onBack }) {
                       </div>
 
                       <div style={{ border:`1px solid ${C.border}`, borderRadius:'0 0 8px 8px', overflow:'hidden' }}>
-                        <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                        <div style={{
+                          overflowX:'auto', maxWidth:'100%',
+                          WebkitOverflowScrolling:'touch', overscrollBehaviorX:'contain',
+                        }}>
+                        <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed', minWidth:1265 }}>
+                          <colgroup>
+                            <col style={{width:140}}/><col style={{width:100}}/><col style={{width:260}}/>
+                            <col style={{width:120}}/><col style={{width:55}}/><col style={{width:100}}/>
+                            <col style={{width:90}}/><col style={{width:110}}/><col style={{width:90}}/>
+                            <col style={{width:110}}/><col style={{width:90}}/>
+                          </colgroup>
                           <thead>
                             <tr>
                               <th style={{ ...thS(C,'left'), width:140 }}>Số chứng từ</th>
@@ -546,6 +565,7 @@ export function ChiTietPanel({ hang, initialRange, onBack }) {
                             ))}
                           </tbody>
                         </table>
+                        </div>
                       </div>
                     </div>
                   );

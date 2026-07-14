@@ -204,8 +204,17 @@ function TongHopTable({ data, onSelect, loading }) {
         {filtered.length === 0 && !loading
           ? <Empty description="Không có công nợ trong kỳ" style={{ padding: '40px 0' }} />
           : (
-            <div style={{ overflowX: 'auto', border: `1px solid ${COLOR_BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div style={{ border: `1px solid ${COLOR_BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{
+                overflowX: 'auto', maxWidth: '100%',
+                WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain',
+              }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed', minWidth: 900 }}>
+                <colgroup>
+                  <col style={{ width: 100 }} /><col style={{ minWidth: 180 }} /><col style={{ width: 130 }} />
+                  <col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 140 }} />
+                  <col style={{ width: 70 }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th style={{ ...thS('center'), width: 100 }} onClick={() => toggleSort('ma_kh')}>
@@ -284,6 +293,7 @@ function TongHopTable({ data, onSelect, loading }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )
         }
@@ -476,7 +486,15 @@ function ChiTietPanel({ kh, range, onBack }) {
 
                     {/* Bảng dòng chứng từ */}
                     <div style={{ border: `1px solid ${COLOR_BORDER}`, borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <div style={{
+                        overflowX: 'auto', maxWidth: '100%',
+                        WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain',
+                      }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 880 }}>
+                        <colgroup>
+                          <col style={{ width: 140 }} /><col style={{ width: 260 }} /><col style={{ width: 80 }} />
+                          <col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 140 }} />
+                        </colgroup>
                         <thead>
                           <tr>
                             <th style={{ ...thS('left'), width: 140 }}>Số chứng từ</th>
@@ -533,6 +551,7 @@ function ChiTietPanel({ kh, range, onBack }) {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   </div>
                 );

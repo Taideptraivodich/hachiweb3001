@@ -52,6 +52,25 @@ router.get('/tong-hop', async (req, res) => {
       request.input('den_ngay', sql.Date, new Date(toDate));
 
       const result = await request.query(`
+        WITH LatestPrice AS (
+          SELECT
+            il.InventoryItemCode,
+            il.StockName,
+            il.UnitPrice,
+            pvd.VATRate,
+            ROW_NUMBER() OVER (
+              PARTITION BY il.InventoryItemCode, il.StockName
+              ORDER BY il.PostedDate DESC, il.RefDate DESC, il.RefNo DESC
+            ) AS rn
+          FROM InventoryLedger il
+          LEFT JOIN PUVoucherDetail pvd ON pvd.RefDetailID = il.RefDetailID
+          WHERE il.PostedDate <= @den_ngay
+            AND ISNULL(il.UnitPrice, 0) > 0
+            AND ISNULL(il.InwardQuantity, 0) > 0
+            -- Chỉ xét dòng NHẬP (mua hàng): VAT chỉ có ý nghĩa với giá mua.
+            -- Dòng XUẤT mang giá vốn (COGS), không phải giá mua, và không có
+            -- PUVoucherDetail tương ứng nên luôn bị hiểu nhầm là "không thuế".
+        )
         SELECT
           il.InventoryItemCode                                              AS ma_hang,
           MAX(il.InventoryItemName)                                         AS ten_hang,
@@ -72,12 +91,22 @@ router.get('/tong-hop', async (req, res) => {
           ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
             THEN il.OutwardQuantity ELSE 0 END), 0)                        AS xuat_sl,
           ISNULL(SUM(CASE WHEN il.PostedDate BETWEEN @tu_ngay AND @den_ngay
-            THEN il.OutwardAmount   ELSE 0 END), 0)                        AS xuat_gt
+            THEN il.OutwardAmount   ELSE 0 END), 0)                        AS xuat_gt,
+          CASE WHEN ISNULL(lp.VATRate, 0) > 0
+            THEN ISNULL(ROUND(lp.UnitPrice * (1 + lp.VATRate / 100.0), 0), 0)
+            ELSE ISNULL(ROUND(lp.UnitPrice, 0), 0)
+          END                                                              AS don_gia,
+          ISNULL(lp.UnitPrice, 0)                                          AS don_gia_goc,
+          ISNULL(lp.VATRate, 0)                                           AS don_gia_vat_rate
         FROM InventoryLedger il
         LEFT JOIN Unit u ON u.UnitID = il.UnitID
+        LEFT JOIN LatestPrice lp
+          ON lp.InventoryItemCode = il.InventoryItemCode
+          AND lp.StockName = il.StockName
+          AND lp.rn = 1
         WHERE il.InventoryItemCode IS NOT NULL
           AND il.InventoryItemCode <> ''
-        GROUP BY il.InventoryItemCode, il.StockName
+        GROUP BY il.InventoryItemCode, il.StockName, lp.UnitPrice, lp.VATRate
         HAVING
           (
             ISNULL(SUM(CASE WHEN il.PostedDate < @tu_ngay
@@ -120,7 +149,7 @@ router.get('/tong-hop', async (req, res) => {
   try {
     const db = await getDb();
     let rows = dbQuery(db, `
-      SELECT ma_hang, ten_hang, kho, dvt,
+      SELECT ma_hang, ten_hang, kho, dvt, don_gia,
              dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt,
              xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt, updated_at
       FROM tonkho_cache
@@ -135,7 +164,7 @@ router.get('/tong-hop', async (req, res) => {
       // nhiều lần với đầu kỳ/nhập/xuất khác nhau do mỗi lần sync 1 kỳ ngày khác lại ghi
       // thêm 1 dòng mới, PRIMARY KEY là (ma_hang, kho, tu_ngay, den_ngay)).
       rows = dbQuery(db, `
-        SELECT t.ma_hang, t.ten_hang, t.kho, t.dvt,
+        SELECT t.ma_hang, t.ten_hang, t.kho, t.dvt, t.don_gia,
                t.dau_ky_sl, t.dau_ky_gt, t.nhap_sl, t.nhap_gt,
                t.xuat_sl, t.xuat_gt, t.cuoi_ky_sl, t.cuoi_ky_gt,
                t.tu_ngay, t.den_ngay, t.updated_at
@@ -365,19 +394,19 @@ async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
   for (const row of data) {
     db.run(`
       INSERT INTO tonkho_cache
-        (ma_hang, ten_hang, kho, dvt, dau_ky_sl, dau_ky_gt,
+        (ma_hang, ten_hang, kho, dvt, don_gia, dau_ky_sl, dau_ky_gt,
          nhap_sl, nhap_gt, xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt,
          tu_ngay, den_ngay, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(ma_hang, kho, tu_ngay, den_ngay) DO UPDATE SET
-        ten_hang=excluded.ten_hang, dvt=excluded.dvt,
+        ten_hang=excluded.ten_hang, dvt=excluded.dvt, don_gia=excluded.don_gia,
         dau_ky_sl=excluded.dau_ky_sl, dau_ky_gt=excluded.dau_ky_gt,
         nhap_sl=excluded.nhap_sl,     nhap_gt=excluded.nhap_gt,
         xuat_sl=excluded.xuat_sl,     xuat_gt=excluded.xuat_gt,
         cuoi_ky_sl=excluded.cuoi_ky_sl, cuoi_ky_gt=excluded.cuoi_ky_gt,
         updated_at=excluded.updated_at
     `, [
-      row.ma_hang, row.ten_hang || '', row.kho || '', row.dvt || '',
+      row.ma_hang, row.ten_hang || '', row.kho || '', row.dvt || '', row.don_gia || 0,
       row.dau_ky_sl || 0, row.dau_ky_gt || 0,
       row.nhap_sl || 0,   row.nhap_gt || 0,
       row.xuat_sl || 0,   row.xuat_gt || 0,
