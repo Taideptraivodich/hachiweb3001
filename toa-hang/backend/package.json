@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "test:code-search": "node scripts/test-code-search.js",
+    "test:navigation": "node scripts/test-navigation-ranking.js"
   },
   "keywords": [],
   "author": "",

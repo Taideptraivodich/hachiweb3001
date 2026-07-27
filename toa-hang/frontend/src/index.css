@@ -113,3 +113,12 @@ body.dark .ant-card-body {
   .ant-statistic-title { font-size: 12px !important; }
   .ant-statistic-content { font-size: 16px !important; }
 }
+
+/* Hachi Navigation Engine V3 */
+.navigation-selected-row > td {
+  background: #e6f4ff !important;
+  box-shadow: inset 0 1px 0 #91caff, inset 0 -1px 0 #91caff;
+}
+.navigation-selected-row > td:first-child {
+  box-shadow: inset 3px 0 0 #1677ff, inset 0 1px 0 #91caff, inset 0 -1px 0 #91caff;
+}

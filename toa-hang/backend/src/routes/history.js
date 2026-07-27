@@ -3,13 +3,14 @@ const router  = express.Router();
 const multer  = require('multer');
 const XLSX    = require('xlsx');
 const { getDb, saveDb, dbQuery, dbGet, dbRun } = require('../sqlite');
-const upload  = multer({ storage: multer.memoryStorage() });
+const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 router.post('/import', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Chưa chọn file' });
-    const wb   = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = wb.SheetNames.find(name => /^(QLĐH|QLDH)$/i.test(String(name).trim())) || wb.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
     if (!rows.length) return res.status(400).json({ error: 'File trống' });
     const db = await getDb();
     dbRun(db, `DELETE FROM sales_history`);

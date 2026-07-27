@@ -142,3 +142,44 @@ WITH COMPRESSION;
 3. **Hoàn thành toa** → click ✓ xanh
 4. **Hủy toa** → click 🚫 đỏ (dữ liệu không bị xóa)
 5. **Sync MISA thủ công** → click "Sync MISA" góc trên phải
+
+---
+
+## Tra mã / Mã ngoài V1
+
+Phiên bản mới bổ sung màn hình hỗ trợ báo hàng theo luồng:
+
+```text
+Tra Alopart để lấy mã
+→ dán mã vào Tra mã / Mã ngoài
+→ tìm đúng mã, bí danh/tên cũ và mã gần giống
+→ riêng mã 555: hiện mapping Aisin để người dùng chọn
+→ xem toàn bộ lịch sử bán QLĐH và lọc khách trên header
+→ xem tồn kho + giá nhập gần nhất đã cộng VAT
+→ người dùng tự kiểm tra và quyết định giá báo
+```
+
+Điểm quan trọng:
+
+- Không tự coi mã gần giống là cùng sản phẩm.
+- Không tự quy đổi MK/KYB/OEM; chỉ mã 555 được quy đổi theo bảng mapping.
+- Một mã 555 có nhiều kết quả thì người dùng phải chọn dựa trên Alopart/VIN.
+- Có thể xác nhận mã cũ như `MI-004/MI004` thành bí danh của `HUB-MI-004`.
+- Import catalog NCC bỏ qua `QLĐH`, `WIN`, `T7`, `NHÁP T7`; lịch sử QLĐH được import bằng chức năng riêng.
+
+### Giá trên panel tồn kho
+
+Panel Tra mã dùng endpoint tra tồn kho chính xác theo mã. Đơn giá được lấy từ **lần nhập mua gần nhất** trong `InventoryLedger`, nối `PUVoucherDetail` qua `RefDetailID` để lấy thuế suất:
+
+```text
+Giá hiển thị = UnitPrice × (1 + VATRate / 100)
+```
+
+Chỉ lấy dòng có `InwardQuantity > 0`. Đây là **giá nhập gần nhất đã gồm VAT**, không phải giá vốn bình quân tồn kho và không phải `MAX(MainUnitPrice)` trong `product_cache`.
+
+Tài liệu đầy đủ:
+
+```text
+../HANDOVER_TRA_MA_V1.md
+../DEPLOY_VPS_TRA_MA_V1.md
+```

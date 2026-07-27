@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout, Menu, Typography, Button, message, Space, ConfigProvider, theme, Drawer } from 'antd';
 import {
   FileTextOutlined, BarChartOutlined, ReloadOutlined,
@@ -25,7 +25,7 @@ const MENU_ITEMS = [
   { key: 'congno',     icon: <BankOutlined />,     label: 'Công nợ'   },
   { key: 'bangcongno', icon: <FileDoneOutlined />, label: 'Bảng CN'   },
   { key: 'tonkho',     icon: <InboxOutlined />,    label: 'Tồn kho'   },
-  { key: 'manggoai',   icon: <TagsOutlined />,     label: 'Mã ngoài'  },
+  { key: 'manggoai',   icon: <TagsOutlined />,     label: 'Tra mã / Mã ngoài'  },
 ];
 
 function useIsMobile() {

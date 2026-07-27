@@ -34,19 +34,65 @@ async function setupDatabase() {
       imported_at TEXT DEFAULT (datetime('now','localtime')))`,
 
     `CREATE TABLE IF NOT EXISTS ma_ngoai (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      ma_hang     TEXT NOT NULL,
-      ma_ngoai    TEXT NOT NULL,
-      nha_cc      TEXT DEFAULT '',
-      xe_ap_dung  TEXT DEFAULT '',
-      vi_tri      TEXT DEFAULT '',
-      ghi_chu     TEXT DEFAULT '',
-      created_at  TEXT DEFAULT (datetime('now','localtime')),
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      ma_hang        TEXT NOT NULL,
+      ma_ngoai       TEXT NOT NULL,
+      ma_hang_norm   TEXT DEFAULT '',
+      ma_ngoai_norm  TEXT DEFAULT '',
+      loai_ma        TEXT DEFAULT 'KHAC',
+      nha_cc         TEXT DEFAULT '',
+      xe_ap_dung     TEXT DEFAULT '',
+      vi_tri         TEXT DEFAULT '',
+      gia_dai_ly     REAL DEFAULT 0,
+      gia_thung      REAL DEFAULT 0,
+      sl_thung       REAL DEFAULT 0,
+      stock_ncc      TEXT DEFAULT '',
+      trang_thai     TEXT DEFAULT 'da_xac_nhan',
+      ghi_chu        TEXT DEFAULT '',
+      created_at     TEXT DEFAULT (datetime('now','localtime')),
+      updated_at     TEXT DEFAULT (datetime('now','localtime')),
       UNIQUE(ma_hang, ma_ngoai)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS win_inventory (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      ma_win       TEXT NOT NULL UNIQUE,
+      ma_win_norm  TEXT DEFAULT '',
+      ten_hang     TEXT DEFAULT '',
+      gia_thung    REAL DEFAULT 0,
+      gia_le       REAL DEFAULT 0,
+      gia_hachi    REAL DEFAULT 0,
+      dvt          TEXT DEFAULT '',
+      sl_ban_dau   REAL DEFAULT 0,
+      so_luong     REAL DEFAULT 0,
+      nhap_them    REAL DEFAULT 0,
+      tong_ban     REAL DEFAULT 0,
+      con_lai      REAL DEFAULT 0,
+      aliases_json TEXT DEFAULT '[]',
+      imported_at  TEXT DEFAULT (datetime('now','localtime')),
+      updated_at   TEXT DEFAULT (datetime('now','localtime'))
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS product_aliases (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      ma_hang      TEXT NOT NULL,
+      alias_raw    TEXT NOT NULL,
+      alias_norm   TEXT NOT NULL,
+      loai_alias   TEXT DEFAULT 'ten_cu',
+      nguon        TEXT DEFAULT 'nguoi_dung',
+      trang_thai   TEXT DEFAULT 'da_xac_nhan',
+      ghi_chu      TEXT DEFAULT '',
+      created_by   TEXT DEFAULT '',
+      created_at   TEXT DEFAULT (datetime('now','localtime')),
+      updated_at   TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(ma_hang, alias_norm)
     )`,
 
     `CREATE INDEX IF NOT EXISTS idx_ma_ngoai_ma_hang  ON ma_ngoai(ma_hang)`,
     `CREATE INDEX IF NOT EXISTS idx_ma_ngoai_ma_ngoai ON ma_ngoai(ma_ngoai)`,
+    `CREATE INDEX IF NOT EXISTS idx_win_ma_norm       ON win_inventory(ma_win_norm)`,
+    `CREATE INDEX IF NOT EXISTS idx_alias_norm        ON product_aliases(alias_norm)`,
+    `CREATE INDEX IF NOT EXISTS idx_alias_ma_hang     ON product_aliases(ma_hang)`,
     `CREATE INDEX IF NOT EXISTS idx_history_ma_hang   ON sales_history(ma_hang)`,
     `CREATE INDEX IF NOT EXISTS idx_history_ma_kh     ON sales_history(ma_kh)`,
     `CREATE INDEX IF NOT EXISTS idx_history_ngay      ON sales_history(ngay_xuat)`,
@@ -57,6 +103,110 @@ async function setupDatabase() {
     `CREATE INDEX IF NOT EXISTS idx_product_ten       ON product_cache(ten_hang)`,
     `CREATE INDEX IF NOT EXISTS idx_customer_ten      ON customer_cache(ten_kh)`,
 
+    // ── Hachi Navigation Engine V3 ─────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS data_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      source_type TEXT DEFAULT 'supplier',
+      description TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      priority INTEGER DEFAULT 100,
+      last_file_name TEXT DEFAULT '',
+      last_import_at TEXT,
+      last_import_rows INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      updated_at TEXT DEFAULT (datetime('now','localtime'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS import_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      source_id INTEGER REFERENCES data_sources(id) ON DELETE SET NULL,
+      sheet_name TEXT DEFAULT '',
+      header_signature TEXT NOT NULL,
+      header_row INTEGER DEFAULT 0,
+      mapping_json TEXT NOT NULL,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      updated_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(source_id, sheet_name, header_signature)
+    )`,
+    `CREATE TABLE IF NOT EXISTS source_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_id INTEGER NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
+      sheet_name TEXT DEFAULT '',
+      source_row INTEGER DEFAULT 0,
+      part_number TEXT DEFAULT '',
+      part_number_norm TEXT DEFAULT '',
+      name TEXT DEFAULT '',
+      description TEXT DEFAULT '',
+      cost REAL DEFAULT 0,
+      retail_price REAL DEFAULT 0,
+      stock REAL DEFAULT 0,
+      brand TEXT DEFAULT '',
+      vehicle TEXT DEFAULT '',
+      position TEXT DEFAULT '',
+      remark TEXT DEFAULT '',
+      related_codes_json TEXT DEFAULT '[]',
+      raw_json TEXT DEFAULT '{}',
+      imported_at TEXT DEFAULT (datetime('now','localtime'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS part_relations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_code TEXT NOT NULL,
+      from_code_norm TEXT NOT NULL,
+      from_type TEXT DEFAULT 'KHAC',
+      to_code TEXT NOT NULL,
+      to_code_norm TEXT NOT NULL,
+      to_type TEXT DEFAULT 'KHAC',
+      relation_type TEXT DEFAULT 'RELATED',
+      source_name TEXT DEFAULT '',
+      source_record_id TEXT DEFAULT '',
+      confirmed INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      updated_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(from_code_norm, to_code_norm, relation_type, source_name)
+    )`,
+    `CREATE TABLE IF NOT EXISTS search_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_key TEXT NOT NULL UNIQUE,
+      source_type TEXT NOT NULL,
+      source_name TEXT DEFAULT '',
+      record_type TEXT DEFAULT '',
+      record_id TEXT DEFAULT '',
+      primary_code TEXT DEFAULT '',
+      primary_code_norm TEXT DEFAULT '',
+      title TEXT DEFAULT '',
+      subtitle TEXT DEFAULT '',
+      search_text_norm TEXT DEFAULT '',
+      tokens_json TEXT DEFAULT '[]',
+      code_variants_json TEXT DEFAULT '[]',
+      history_count INTEGER DEFAULT 0,
+      history_qty REAL DEFAULT 0,
+      stock_company REAL DEFAULT 0,
+      stock_win REAL DEFAULT 0,
+      cost_hint REAL DEFAULT 0,
+      business_score REAL DEFAULT 0,
+      payload_json TEXT DEFAULT '{}',
+      updated_at TEXT DEFAULT (datetime('now','localtime'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS search_interactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      query_norm TEXT NOT NULL,
+      document_key TEXT NOT NULL,
+      document_id INTEGER DEFAULT 0,
+      user_id TEXT DEFAULT '',
+      click_count INTEGER DEFAULT 0,
+      last_clicked_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(query_norm, document_key, user_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_source_records_part ON source_records(part_number_norm)`,
+    `CREATE INDEX IF NOT EXISTS idx_source_records_source ON source_records(source_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_part_rel_from ON part_relations(from_code_norm)`,
+    `CREATE INDEX IF NOT EXISTS idx_part_rel_to ON part_relations(to_code_norm)`,
+    `CREATE INDEX IF NOT EXISTS idx_search_doc_code ON search_documents(primary_code_norm)`,
+    `CREATE INDEX IF NOT EXISTS idx_search_doc_source ON search_documents(source_type, source_name)`,
+    `CREATE INDEX IF NOT EXISTS idx_search_click_query ON search_interactions(query_norm)`,
+
     // ── Cache tồn kho tổng hợp ──────────────────────────────────────────────
     `CREATE TABLE IF NOT EXISTS tonkho_cache (
       ma_hang     TEXT NOT NULL,
@@ -64,6 +214,8 @@ async function setupDatabase() {
       kho         TEXT DEFAULT '',
       dvt         TEXT DEFAULT '',
       don_gia     REAL DEFAULT 0,
+      don_gia_goc REAL DEFAULT 0,
+      don_gia_vat_rate REAL DEFAULT 0,
       dau_ky_sl   REAL DEFAULT 0,
       dau_ky_gt   REAL DEFAULT 0,
       nhap_sl     REAL DEFAULT 0,
@@ -214,6 +366,34 @@ async function setupDatabase() {
   // ở Tồn kho tổng vẫn hiển thị đúng khi fallback sang cache lúc MISA offline.
   // CREATE TABLE mới đã có sẵn cột này, migration chỉ cần cho DB đang chạy trên VPS.
   addColumnIfMissing('tonkho_cache', 'don_gia', 'REAL DEFAULT 0');
+  addColumnIfMissing('tonkho_cache', 'don_gia_goc', 'REAL DEFAULT 0');
+  addColumnIfMissing('tonkho_cache', 'don_gia_vat_rate', 'REAL DEFAULT 0');
+
+  // Mã ngoài: chuẩn hóa tìm kiếm, phân loại mã và lưu giá NCC hiện hành.
+  addColumnIfMissing('ma_ngoai', 'ma_hang_norm', "TEXT DEFAULT ''");
+  addColumnIfMissing('ma_ngoai', 'ma_ngoai_norm', "TEXT DEFAULT ''");
+  addColumnIfMissing('ma_ngoai', 'loai_ma', "TEXT DEFAULT 'KHAC'");
+  addColumnIfMissing('ma_ngoai', 'gia_dai_ly', 'REAL DEFAULT 0');
+  addColumnIfMissing('ma_ngoai', 'gia_thung', 'REAL DEFAULT 0');
+  addColumnIfMissing('ma_ngoai', 'sl_thung', 'REAL DEFAULT 0');
+  addColumnIfMissing('ma_ngoai', 'stock_ncc', "TEXT DEFAULT ''");
+  addColumnIfMissing('ma_ngoai', 'trang_thai', "TEXT DEFAULT 'da_xac_nhan'");
+  addColumnIfMissing('ma_ngoai', 'updated_at', "TEXT DEFAULT ''");
+
+  // Backfill trường chuẩn hóa cho dữ liệu cũ. SQLite không có regex nên chỉ
+  // xử lý các ký tự phân cách phổ biến; API vẫn chuẩn hóa đầy đủ ở runtime.
+  db.run(`UPDATE ma_ngoai SET
+    ma_hang_norm = UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(ma_hang, '-', ''), '_', ''), '/', ''), '.', ''), ' ', '')),
+    ma_ngoai_norm = UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(ma_ngoai, '-', ''), '_', ''), '/', ''), '.', ''), ' ', '')),
+    loai_ma = CASE
+      WHEN (loai_ma IS NULL OR loai_ma = '' OR loai_ma = 'KHAC') AND UPPER(nha_cc) LIKE '%ROTUYN%' THEN '555'
+      WHEN loai_ma IS NULL OR loai_ma = '' THEN 'KHAC'
+      ELSE loai_ma
+    END,
+    updated_at = CASE WHEN updated_at IS NULL OR updated_at = '' THEN datetime('now','localtime') ELSE updated_at END
+  `);
+
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ma_ngoai_norm ON ma_ngoai(ma_ngoai_norm)`);
 
   // Backfill ma_don cho các toa cũ đã có, suy từ ma_toa dạng "NN.DDMMYY" → "DDMMYYHCNN"
   const oldOrders = [];
@@ -225,6 +405,15 @@ async function setupDatabase() {
     if (!m) continue; // ma_toa không theo pattern chuẩn → để trống, user tự nhập tay
     const [, seq, ddmmyy] = m;
     db.run(`UPDATE orders SET ma_don=? WHERE id=?`, [`${ddmmyy}HC${seq.padStart(2,'0')}`, o.id]);
+  }
+
+  // Build navigation index persisted documents after migrations. Nếu dữ liệu raw chưa
+  // được import thì bảng index vẫn hợp lệ nhưng rỗng.
+  try {
+    const { rebuildSearchDocuments } = require('./services/navigationIndex');
+    rebuildSearchDocuments(db);
+  } catch (error) {
+    console.warn('⚠️ Navigation index chưa build được:', error.message);
   }
 
   saveDb(db);

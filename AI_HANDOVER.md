@@ -152,3 +152,34 @@ Gợi ý vùng cần làm ở phiên sau:
   đương), chỉ chụp đúng vùng bảng gửi khách, có fallback khi Clipboard API
   lỗi.
 ```
+
+---
+
+# Bổ sung 2026-07-14 — Tra mã / Mã ngoài V1
+
+Một phase mới đã nâng cấp màn hình `Mã ngoài` thành công cụ hỗ trợ báo hàng. Khi tiếp tục dự án, **đọc tài liệu sau trước**:
+
+```text
+HANDOVER_TRA_MA_V1.md
+DEPLOY_VPS_TRA_MA_V1.md
+```
+
+Nguyên tắc không được phá vỡ:
+
+```text
+Alopart xác định mã
+→ web tìm đúng/bí danh/gần đúng
+→ chỉ mã 555 được quy đổi sang Aisin
+→ lịch sử QLĐH và tồn kho chỉ là bằng chứng hỗ trợ
+→ người dùng tự chọn mã và tự quyết giá
+```
+
+Giá trên panel tồn kho là giá lần nhập gần nhất đã cộng VAT lấy qua:
+
+```sql
+InventoryLedger
+LEFT JOIN PUVoucherDetail ON RefDetailID
+WHERE InwardQuantity > 0
+```
+
+Không thay bằng `MAX(MainUnitPrice)` hoặc giá bình quân nếu chưa có quyết định nghiệp vụ mới từ user.

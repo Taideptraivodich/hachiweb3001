@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { getMisaPool, sql } = require('../db');
 const { getDb, saveDb, dbQuery, dbGet } = require('../sqlite');
+const { lookupInventoryCache: lookupInventoryCacheIndex, loadInventoryCacheIndex } = require('../services/inventoryCacheIndex');
 
 // ─── Helper: kiểm tra MISA online ────────────────────────────────────────────
 async function checkMisaOnline() {
@@ -34,6 +35,140 @@ function parseDates(query) {
     toDate:   query.den_ngay || today,
   };
 }
+
+// ─── Helpers: tra tồn đúng một mã ─────────────────────────────────────────────
+async function lookupInventoryOnline(maHang) {
+  const misaOnline = await checkMisaOnline();
+  if (!misaOnline) {
+    const error = new Error('MISA đang offline');
+    error.code = 'MISA_OFFLINE';
+    throw error;
+  }
+
+  const misa = await getMisaPool();
+  const request = misa.request();
+  request.input('ma_hang', sql.NVarChar, maHang);
+
+  const result = await request.query(`
+    WITH LatestPrice AS (
+      SELECT
+        il.InventoryItemCode,
+        il.StockName,
+        il.UnitPrice,
+        pvd.VATRate,
+        il.PostedDate,
+        il.RefDate,
+        il.RefNo,
+        ROW_NUMBER() OVER (
+          PARTITION BY il.InventoryItemCode, il.StockName
+          ORDER BY il.PostedDate DESC, il.RefDate DESC, il.RefNo DESC
+        ) AS rn
+      FROM InventoryLedger il
+      LEFT JOIN PUVoucherDetail pvd ON pvd.RefDetailID = il.RefDetailID
+      WHERE il.InventoryItemCode = @ma_hang
+        AND ISNULL(il.UnitPrice, 0) > 0
+        AND ISNULL(il.InwardQuantity, 0) > 0
+    )
+    SELECT
+      il.InventoryItemCode AS ma_hang,
+      MAX(il.InventoryItemName) AS ten_hang,
+      il.StockName AS kho,
+      MAX(u.UnitName) AS dvt,
+      ISNULL(SUM(il.InwardQuantity), 0) - ISNULL(SUM(il.OutwardQuantity), 0) AS ton_kho,
+      CASE WHEN ISNULL(lp.VATRate, 0) > 0
+        THEN ISNULL(ROUND(lp.UnitPrice * (1 + lp.VATRate / 100.0), 0), 0)
+        ELSE ISNULL(ROUND(lp.UnitPrice, 0), 0)
+      END AS don_gia,
+      ISNULL(lp.UnitPrice, 0) AS don_gia_goc,
+      ISNULL(lp.VATRate, 0) AS don_gia_vat_rate,
+      lp.PostedDate AS ngay_gia_gan_nhat,
+      lp.RefNo AS so_ct_gia_gan_nhat
+    FROM InventoryLedger il
+    LEFT JOIN Unit u ON u.UnitID = il.UnitID
+    LEFT JOIN LatestPrice lp
+      ON lp.InventoryItemCode = il.InventoryItemCode
+      AND lp.StockName = il.StockName
+      AND lp.rn = 1
+    WHERE il.InventoryItemCode = @ma_hang
+    GROUP BY il.InventoryItemCode, il.StockName,
+             lp.UnitPrice, lp.VATRate, lp.PostedDate, lp.RefNo
+    ORDER BY il.StockName
+  `);
+
+  const rows = result.recordset.map(row => ({
+    ...row,
+    ton_kho: Number(row.ton_kho || 0),
+    don_gia: Number(row.don_gia || 0),
+    don_gia_goc: Number(row.don_gia_goc || 0),
+    don_gia_vat_rate: Number(row.don_gia_vat_rate || 0),
+  }));
+
+  return {
+    success: true,
+    ma_hang: maHang,
+    data: rows,
+    tong_ton: rows.reduce((sum, row) => sum + Number(row.ton_kho || 0), 0),
+    from_cache: false,
+    price_definition: 'Giá nhập gần nhất đã cộng VAT theo PUVoucherDetail',
+  };
+}
+
+async function lookupInventoryCache(maHang) {
+  const { rows, lastSync, indexLoadedAt } = await lookupInventoryCacheIndex(maHang);
+  return {
+    success: true,
+    ma_hang: maHang,
+    data: rows,
+    tong_ton: rows.reduce((sum, row) => sum + Number(row.ton_kho || 0), 0),
+    from_cache: true,
+    cache_mode: 'scheduled_snapshot',
+    last_sync: lastSync,
+    index_loaded_at: indexLoadedAt,
+    cache_note: `Dữ liệu tồn kho đồng bộ lúc: ${lastSync || 'chưa có'}`,
+    price_definition: 'Giá nhập gần nhất đã cộng VAT từ snapshot tồn kho dùng chung',
+  };
+}
+
+// ─── GET /tonkho/lookup ───────────────────────────────────────────────────────
+// Mặc định giữ nguyên hành vi cũ cho các màn hình khác: ưu tiên MISA, lỗi thì fallback cache.
+// Màn hình Tra mã dùng mode=cache để đọc snapshot tồn kho dùng chung, không gọi MISA riêng.
+// mode=online vẫn giữ lại để tương thích, nhưng Tra mã không sử dụng.
+router.get('/lookup', async (req, res) => {
+  const maHang = String(req.query.ma_hang || '').trim();
+  const mode = String(req.query.mode || '').trim().toLowerCase();
+  if (!maHang) return res.status(400).json({ success: false, error: 'Thiếu ma_hang' });
+
+  if (mode === 'cache') {
+    try {
+      return res.json(await lookupInventoryCache(maHang));
+    } catch (error) {
+      return res.status(503).json({ success: false, error: `Không đọc được cache tồn kho: ${error.message}` });
+    }
+  }
+
+  if (mode === 'online') {
+    try {
+      return res.json(await lookupInventoryOnline(maHang));
+    } catch (error) {
+      return res.status(503).json({ success: false, error: error.message || 'Không lấy được tồn MISA online' });
+    }
+  }
+
+  try {
+    return res.json(await lookupInventoryOnline(maHang));
+  } catch (error) {
+    console.error('❌ Tra tồn kho theo mã MISA lỗi:', error.message);
+  }
+
+  try {
+    return res.json(await lookupInventoryCache(maHang));
+  } catch (cacheErr) {
+    return res.status(503).json({
+      success: false,
+      error: `MISA offline và không đọc được cache: ${cacheErr.message}`,
+    });
+  }
+});
 
 // ─── GET /tonkho/tong-hop ─────────────────────────────────────────────────────
 // Tổng hợp tồn kho theo mặt hàng (giống màn hình MISA "Tổng hợp tồn kho")
@@ -149,7 +284,7 @@ router.get('/tong-hop', async (req, res) => {
   try {
     const db = await getDb();
     let rows = dbQuery(db, `
-      SELECT ma_hang, ten_hang, kho, dvt, don_gia,
+      SELECT ma_hang, ten_hang, kho, dvt, don_gia, don_gia_goc, don_gia_vat_rate,
              dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt,
              xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt, updated_at
       FROM tonkho_cache
@@ -164,7 +299,7 @@ router.get('/tong-hop', async (req, res) => {
       // nhiều lần với đầu kỳ/nhập/xuất khác nhau do mỗi lần sync 1 kỳ ngày khác lại ghi
       // thêm 1 dòng mới, PRIMARY KEY là (ma_hang, kho, tu_ngay, den_ngay)).
       rows = dbQuery(db, `
-        SELECT t.ma_hang, t.ten_hang, t.kho, t.dvt, t.don_gia,
+        SELECT t.ma_hang, t.ten_hang, t.kho, t.dvt, t.don_gia, t.don_gia_goc, t.don_gia_vat_rate,
                t.dau_ky_sl, t.dau_ky_gt, t.nhap_sl, t.nhap_gt,
                t.xuat_sl, t.xuat_gt, t.cuoi_ky_sl, t.cuoi_ky_gt,
                t.tu_ngay, t.den_ngay, t.updated_at
@@ -394,12 +529,13 @@ async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
   for (const row of data) {
     db.run(`
       INSERT INTO tonkho_cache
-        (ma_hang, ten_hang, kho, dvt, don_gia, dau_ky_sl, dau_ky_gt,
-         nhap_sl, nhap_gt, xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt,
-         tu_ngay, den_ngay, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        (ma_hang, ten_hang, kho, dvt, don_gia, don_gia_goc, don_gia_vat_rate,
+         dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt, xuat_sl, xuat_gt,
+         cuoi_ky_sl, cuoi_ky_gt, tu_ngay, den_ngay, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(ma_hang, kho, tu_ngay, den_ngay) DO UPDATE SET
         ten_hang=excluded.ten_hang, dvt=excluded.dvt, don_gia=excluded.don_gia,
+        don_gia_goc=excluded.don_gia_goc, don_gia_vat_rate=excluded.don_gia_vat_rate,
         dau_ky_sl=excluded.dau_ky_sl, dau_ky_gt=excluded.dau_ky_gt,
         nhap_sl=excluded.nhap_sl,     nhap_gt=excluded.nhap_gt,
         xuat_sl=excluded.xuat_sl,     xuat_gt=excluded.xuat_gt,
@@ -407,6 +543,7 @@ async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
         updated_at=excluded.updated_at
     `, [
       row.ma_hang, row.ten_hang || '', row.kho || '', row.dvt || '', row.don_gia || 0,
+      row.don_gia_goc || 0, row.don_gia_vat_rate || 0,
       row.dau_ky_sl || 0, row.dau_ky_gt || 0,
       row.nhap_sl || 0,   row.nhap_gt || 0,
       row.xuat_sl || 0,   row.xuat_gt || 0,
@@ -419,6 +556,10 @@ async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
   `, ['last_sync_tonkho', now, now]);
   saveDb(db);
+
+  // Màn hình Tra mã đọc index RAM của chính snapshot này.
+  // Rebuild sau khi ghi xong để lần click kế tiếp thấy dữ liệu mới ngay.
+  await loadInventoryCacheIndex(true);
 }
 
 // ─── Helper: cập nhật cache tồn kho chi tiết ─────────────────────────────────

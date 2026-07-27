@@ -4,7 +4,7 @@ const cors     = require('cors');
 const path     = require('path');
 
 const { setupDatabase }     = require('./src/setup');
-const { startSyncScheduler, syncProducts, syncCustomers, syncTonkho, syncCongno, syncCongnoChiTiet, syncTonkhoChiTiet } = require('./src/sync');
+const { startSyncScheduler, syncProducts, syncCustomers, syncTonkho, syncCongno, syncCongnoChiTiet, syncTonkhoChiTiet, isMisaOnline } = require('./src/sync');
 const productsRouter = require('./src/routes/products');
 const ordersRouter   = require('./src/routes/orders');
 const reportsRouter  = require('./src/routes/reports');
@@ -33,6 +33,8 @@ app.use('/api', requireAuth);
 // API routes
 app.use('/api/products',  productsRouter);
 app.use('/api/ma-ngoai', require('./src/routes/ma_ngoai'));
+app.use('/api/navigation', require('./src/routes/navigation'));
+app.use('/api/data-sources', require('./src/routes/data_sources'));
 app.use('/api/orders',    ordersRouter);
 app.use('/api/reports',   reportsRouter);
 app.use('/api/history',   historyRouter);
@@ -51,28 +53,77 @@ async function start() {
   try {
     console.log('🚀 Khởi động hệ thống toa hàng...');
 
-    // Setup DB tables
+    // Database phải sẵn sàng trước khi nhận request.
     await setupDatabase();
 
-    // Sync lần đầu khi khởi động
-    console.log('🔄 Sync dữ liệu lần đầu...');
-    await syncProducts();
-    await syncCustomers();
-    await syncTonkho();
-    await syncCongno();
-
-    // Pre-cache chi tiết (6 tháng gần nhất) — chạy ngầm, không chặn server start
-    syncCongnoChiTiet().catch(() => {});
-    syncTonkhoChiTiet().catch(() => {});
-
-    // Bắt đầu scheduler
-    startSyncScheduler();
-
-    app.listen(PORT, () => {
+    // Mở cổng ngay sau khi DB sẵn sàng.
+    const server = app.listen(PORT, () => {
       console.log(`✅ Server chạy tại http://localhost:${PORT}`);
     });
-  } catch (err) {
-    console.error('❌ Lỗi khởi động:', err.message);
+
+    server.on('error', (error) => {
+      console.error('❌ Không mở được cổng server:', error);
+    });
+
+    // Các tác vụ khởi động còn lại chạy nền, không được chặn server.
+    (async () => {
+      try {
+        const misaOnline = await isMisaOnline();
+
+        if (misaOnline) {
+          console.log('🔄 MISA online — sync dữ liệu lần đầu...');
+
+          await syncProducts();
+          await syncCustomers();
+          await syncTonkho();
+          await syncCongno();
+
+          (async () => {
+            await syncCongnoChiTiet();
+            await syncTonkhoChiTiet();
+          })().catch((error) => {
+            console.warn('⚠️ Pre-cache chi tiết lỗi:', error.message);
+          });
+        } else {
+          console.warn(
+            '⚠️ MISA offline — bỏ qua sync khởi động, tiếp tục dùng cache local'
+          );
+        }
+      } catch (error) {
+        console.warn(
+          '⚠️ Kiểm tra/sync MISA lúc khởi động lỗi, tiếp tục dùng cache local:',
+          error.message
+        );
+      }
+
+      try {
+        const { loadMemoryIndex } =
+          require('./src/services/navigationIndex');
+
+        const navigationIndex = await loadMemoryIndex(true);
+
+        console.log(
+          `🧭 Navigation index ready: ${navigationIndex.documents.size} documents`
+        );
+      } catch (error) {
+        console.warn(
+          '⚠️ Không warm được navigation index:',
+          error.message
+        );
+      }
+      console.warn('⚠️ Tạm tắt inventory cache warm để khoanh vùng V3.0.3');
+
+      try {
+        startSyncScheduler();
+      } catch (error) {
+        console.warn(
+          '⚠️ Không khởi động được scheduler:',
+          error.message
+        );
+      }
+    })();
+  } catch (error) {
+    console.error('❌ Lỗi khởi động database/server:', error);
     process.exit(1);
   }
 }

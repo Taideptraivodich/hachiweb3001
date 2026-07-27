@@ -1,6 +1,8 @@
 const cron            = require('node-cron');
 const { getMisaPool, sql } = require('./db');
 const { getDb, saveDb } = require('./sqlite');
+const { rebuildSearchDocuments } = require('./services/navigationIndex');
+const { loadInventoryCacheIndex } = require('./services/inventoryCacheIndex');
 
 // ─── Helper: kiểm tra MISA có online không ───────────────────────────────────
 async function isMisaOnline() {
@@ -60,6 +62,7 @@ async function syncProducts() {
     }
 
     saveSyncMeta(db, 'last_sync_products');
+    rebuildSearchDocuments(db);
     saveDb(db);
     console.log(`✅ Sync hàng hóa: ${count} mặt hàng`);
     return { success: true, count };
@@ -129,8 +132,8 @@ async function syncTonkho() {
         SELECT
           il.InventoryItemCode,
           il.StockName,
-          SUM(il.InwardQuantity)  - SUM(il.OutwardQuantity) AS sl,
-          SUM(il.InwardAmount)    - SUM(il.OutwardAmount)   AS gt
+          SUM(il.InwardQuantity) - SUM(il.OutwardQuantity) AS sl,
+          SUM(il.InwardAmount) - SUM(il.OutwardAmount) AS gt
         FROM InventoryLedger il
         WHERE il.InventoryItemCode IS NOT NULL
           AND il.InventoryItemCode <> ''
@@ -141,12 +144,12 @@ async function syncTonkho() {
         SELECT
           il.InventoryItemCode,
           il.StockName,
-          MAX(il.InventoryItemName)  AS ten_hang,
-          MAX(u.UnitName)            AS dvt,
-          SUM(il.InwardQuantity)     AS nhap_sl,
-          SUM(il.InwardAmount)       AS nhap_gt,
-          SUM(il.OutwardQuantity)    AS xuat_sl,
-          SUM(il.OutwardAmount)      AS xuat_gt
+          MAX(il.InventoryItemName) AS ten_hang,
+          MAX(u.UnitName) AS dvt,
+          SUM(il.InwardQuantity) AS nhap_sl,
+          SUM(il.InwardAmount) AS nhap_gt,
+          SUM(il.OutwardQuantity) AS xuat_sl,
+          SUM(il.OutwardAmount) AS xuat_gt
         FROM InventoryLedger il
         LEFT JOIN Unit u ON u.UnitID = il.UnitID
         WHERE il.InventoryItemCode IS NOT NULL
@@ -158,17 +161,36 @@ async function syncTonkho() {
         SELECT InventoryItemCode, StockName FROM dau_ky WHERE sl <> 0
         UNION
         SELECT InventoryItemCode, StockName FROM trong_ky
+      ),
+      LatestPrice AS (
+        SELECT
+          il.InventoryItemCode,
+          il.StockName,
+          il.UnitPrice,
+          pvd.VATRate,
+          ROW_NUMBER() OVER (
+            PARTITION BY il.InventoryItemCode, il.StockName
+            ORDER BY il.PostedDate DESC, il.RefDate DESC, il.RefNo DESC
+          ) AS rn
+        FROM InventoryLedger il
+        LEFT JOIN PUVoucherDetail pvd ON pvd.RefDetailID = il.RefDetailID
+        WHERE il.PostedDate <= @den_ngay
+          AND ISNULL(il.UnitPrice, 0) > 0
+          AND ISNULL(il.InwardQuantity, 0) > 0
       )
       SELECT
         a.InventoryItemCode AS ma_hang,
-        a.StockName         AS kho,
-        (SELECT TOP 1 UnitPrice FROM InventoryLedger
-         WHERE InventoryItemCode = a.InventoryItemCode
-           AND InwardQuantity > 0 AND UnitPrice > 0
-         ORDER BY PostedDate DESC, SortOrder DESC) AS don_gia,
+        a.StockName AS kho,
+        CASE WHEN ISNULL(lp.VATRate, 0) > 0
+          THEN ISNULL(ROUND(lp.UnitPrice * (1 + lp.VATRate / 100.0), 0), 0)
+          ELSE ISNULL(ROUND(lp.UnitPrice, 0), 0)
+        END AS don_gia,
+        ISNULL(lp.UnitPrice, 0) AS don_gia_goc,
+        ISNULL(lp.VATRate, 0) AS don_gia_vat_rate,
         ISNULL(tk.ten_hang,
           (SELECT TOP 1 InventoryItemName FROM InventoryLedger
-           WHERE InventoryItemCode = a.InventoryItemCode)) AS ten_hang,
+           WHERE InventoryItemCode = a.InventoryItemCode
+           ORDER BY PostedDate DESC, SortOrder DESC)) AS ten_hang,
         tk.dvt,
         ISNULL(dk.sl, 0) AS dau_ky_sl,
         ISNULL(dk.gt, 0) AS dau_ky_gt,
@@ -177,8 +199,16 @@ async function syncTonkho() {
         ISNULL(tk.xuat_sl, 0) AS xuat_sl,
         ISNULL(tk.xuat_gt, 0) AS xuat_gt
       FROM all_hang a
-      LEFT JOIN dau_ky  dk ON dk.InventoryItemCode = a.InventoryItemCode AND dk.StockName = a.StockName
-      LEFT JOIN trong_ky tk ON tk.InventoryItemCode = a.InventoryItemCode AND tk.StockName = a.StockName
+      LEFT JOIN dau_ky dk
+        ON dk.InventoryItemCode = a.InventoryItemCode
+        AND dk.StockName = a.StockName
+      LEFT JOIN trong_ky tk
+        ON tk.InventoryItemCode = a.InventoryItemCode
+        AND tk.StockName = a.StockName
+      LEFT JOIN LatestPrice lp
+        ON lp.InventoryItemCode = a.InventoryItemCode
+        AND lp.StockName = a.StockName
+        AND lp.rn = 1
       ORDER BY ten_hang, a.StockName
     `);
 
@@ -192,32 +222,39 @@ async function syncTonkho() {
       const cuoi_ky_gt = Number(row.dau_ky_gt) + Number(row.nhap_gt) - Number(row.xuat_gt);
       db.run(`
         INSERT INTO tonkho_cache
-          (ma_hang, ten_hang, kho, dvt, don_gia,
+          (ma_hang, ten_hang, kho, dvt, don_gia, don_gia_goc, don_gia_vat_rate,
            dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt, xuat_sl, xuat_gt,
            cuoi_ky_sl, cuoi_ky_gt, tu_ngay, den_ngay, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(ma_hang, kho, tu_ngay, den_ngay) DO UPDATE SET
           ten_hang=excluded.ten_hang, dvt=excluded.dvt,
           don_gia=excluded.don_gia,
+          don_gia_goc=excluded.don_gia_goc,
+          don_gia_vat_rate=excluded.don_gia_vat_rate,
           dau_ky_sl=excluded.dau_ky_sl, dau_ky_gt=excluded.dau_ky_gt,
-          nhap_sl=excluded.nhap_sl,     nhap_gt=excluded.nhap_gt,
-          xuat_sl=excluded.xuat_sl,     xuat_gt=excluded.xuat_gt,
+          nhap_sl=excluded.nhap_sl, nhap_gt=excluded.nhap_gt,
+          xuat_sl=excluded.xuat_sl, xuat_gt=excluded.xuat_gt,
           cuoi_ky_sl=excluded.cuoi_ky_sl, cuoi_ky_gt=excluded.cuoi_ky_gt,
           updated_at=excluded.updated_at
       `, [
-        row.ma_hang, row.ten_hang||'', row.kho||'', row.dvt||'', row.don_gia||0,
-        row.dau_ky_sl||0, row.dau_ky_gt||0,
-        row.nhap_sl||0, row.nhap_gt||0,
-        row.xuat_sl||0, row.xuat_gt||0,
+        row.ma_hang, row.ten_hang || '', row.kho || '', row.dvt || '',
+        row.don_gia || 0, row.don_gia_goc || 0, row.don_gia_vat_rate || 0,
+        row.dau_ky_sl || 0, row.dau_ky_gt || 0,
+        row.nhap_sl || 0, row.nhap_gt || 0,
+        row.xuat_sl || 0, row.xuat_gt || 0,
         cuoi_ky_sl, cuoi_ky_gt,
-        firstDay, today, now
+        firstDay, today, now,
       ]);
       count++;
     }
 
     saveSyncMeta(db, 'last_sync_tonkho');
     saveDb(db);
-    console.log(`✅ Sync tồn kho: ${count} mặt hàng`);
+
+    // Rebuild index RAM sau mỗi chu kỳ sync. Tra mã chỉ lookup theo mã,
+    // không mở SQLite và không gọi MISA riêng cho từng lần click.
+    const inventoryIndex = await loadInventoryCacheIndex(true);
+    console.log(`✅ Sync tồn kho: ${count} dòng · index ${inventoryIndex.codeCount} mã`);
     return { success: true, count };
   } catch (err) {
     console.error('❌ Sync tồn kho lỗi:', err.message);
@@ -594,5 +631,5 @@ function startSyncScheduler() {
 module.exports = {
   syncProducts, syncCustomers, syncTonkho, syncCongno,
   syncCongnoChiTiet, syncTonkhoChiTiet,
-  startSyncScheduler,
+  startSyncScheduler, isMisaOnline,
 };
