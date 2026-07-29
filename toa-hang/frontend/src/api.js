@@ -28,6 +28,25 @@ api.interceptors.response.use(
 export const login = (username, password) =>
   api.post('/auth/login', { username, password }).then(r => r.data);
 
+// Chấm công (attendance)
+export const getCurrentQr = () =>
+  api.get('/attendance/qr/current').then(r => r.data);
+export const getEmployees = () =>
+  api.get('/employees').then(r => r.data);
+export const createEmployee = (data) =>
+  api.post('/employees', data).then(r => r.data);
+export const updateEmployee = (id, data) =>
+  api.put(`/employees/${id}`, data).then(r => r.data);
+export const deleteEmployee = (id) =>
+  api.delete(`/employees/${id}`).then(r => r.data);
+export const getAttendanceSummary = (params) =>
+  api.get('/attendance/summary', { params }).then(r => r.data);
+export const getAttendanceDetail = (params) =>
+  api.get('/attendance/detail', { params }).then(r => r.data);
+export const exportAttendance = (type, params) =>
+  api.get('/attendance/export', { params: { ...params, type }, responseType: 'blob' })
+    .then(r => r.data);
+
 // Products
 export const searchProducts = (q) =>
   api.get('/products', { params: { q } }).then(r => r.data);

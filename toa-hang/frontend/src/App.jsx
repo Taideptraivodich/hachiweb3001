@@ -4,7 +4,7 @@ import {
   FileTextOutlined, BarChartOutlined, ReloadOutlined,
   DatabaseOutlined, BankOutlined, InboxOutlined,
   SunOutlined, MoonOutlined, TagsOutlined, MenuOutlined, FileDoneOutlined,
-  LogoutOutlined,
+  LogoutOutlined, QrcodeOutlined,
 } from '@ant-design/icons';
 import OrderList from './components/OrderList';
 import Reports   from './components/Reports';
@@ -12,6 +12,8 @@ import CongNo    from './components/CongNo';
 import TonKho    from './components/TonKho';
 import MaNgoai   from './components/MaNgoai';
 import BangCongNo from './components/BangCongNo';
+import AttendanceStats from './components/AttendanceStats';
+import KioskQr    from './components/KioskQr';
 import Login     from './components/Login';
 import { useAuth } from './context/AuthContext';
 import { syncAll } from './api';
@@ -26,6 +28,7 @@ const MENU_ITEMS = [
   { key: 'bangcongno', icon: <FileDoneOutlined />, label: 'Bảng CN'   },
   { key: 'tonkho',     icon: <InboxOutlined />,    label: 'Tồn kho'   },
   { key: 'manggoai',   icon: <TagsOutlined />,     label: 'Tra mã / Mã ngoài'  },
+  { key: 'chamcong',   icon: <QrcodeOutlined />,   label: 'Chấm công' },
 ];
 
 function useIsMobile() {
@@ -50,6 +53,12 @@ export default function App() {
   useEffect(() => {
     document.body.classList.toggle('dark', dark);
   }, [dark]);
+
+  // Màn hình kiosk đặt ở cổng công ty — không cần đăng nhập, truy cập qua
+  // /kiosk trên trình duyệt máy đặt tại chỗ.
+  if (window.location.pathname.replace(/\/+$/, '') === '/kiosk') {
+    return <KioskQr />;
+  }
 
   // Chưa đăng nhập → chỉ hiện màn hình Login, không load layout/dữ liệu chính
   if (!isAuthenticated) {
@@ -189,6 +198,7 @@ export default function App() {
             {page === 'tonkho'   && <TonKho />}
             {page === 'bangcongno' && <BangCongNo />}
             {page === 'manggoai' && <MaNgoai />}
+            {page === 'chamcong' && <AttendanceStats />}
           </Content>
         </Layout>
       </Layout>

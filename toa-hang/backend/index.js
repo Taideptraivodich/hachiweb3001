@@ -15,7 +15,9 @@ const tonkhoRouter   = require('./src/routes/tonkho');
 const syncStatusRouter = require('./src/routes/sync_status');
 const bangCongNoRouter = require('./src/routes/bang_cong_no');
 const authRouter       = require('./src/routes/auth');
+const kioskRouter      = require('./src/routes/kiosk');
 const { requireAuth }  = require('./src/middleware/auth');
+const { startQrScheduler, ensureActiveToken } = require('./src/services/attendance_qr');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -26,6 +28,8 @@ app.use(express.json());
 // Auth & health check — KHÔNG yêu cầu đăng nhập
 app.use('/api/auth', authRouter);
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date() }));
+// Màn hình kiosk chấm công (đặt ở cổng công ty) — cũng không yêu cầu đăng nhập
+app.use('/api/kiosk', kioskRouter);
 
 // Từ đây trở xuống, mọi route /api/* đều yêu cầu JWT hợp lệ
 app.use('/api', requireAuth);
@@ -42,6 +46,8 @@ app.use('/api/congno',    congnoRouter);
 app.use('/api/tonkho',   tonkhoRouter);
 app.use('/api/bang-cong-no', bangCongNoRouter);
 app.use('/api/sync',     syncStatusRouter);
+app.use('/api/employees',  require('./src/routes/employees'));
+app.use('/api/attendance', require('./src/routes/attendance'));
 
 // Serve React build (production)
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
@@ -118,6 +124,16 @@ async function start() {
       } catch (error) {
         console.warn(
           '⚠️ Không khởi động được scheduler:',
+          error.message
+        );
+      }
+
+      try {
+        await ensureActiveToken();
+        startQrScheduler();
+      } catch (error) {
+        console.warn(
+          '⚠️ Không khởi động được QR chấm công:',
           error.message
         );
       }

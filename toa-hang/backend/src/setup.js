@@ -333,6 +333,44 @@ async function setupDatabase() {
       value      TEXT,
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     )`,
+
+    // ── Chấm công: tài khoản nhân viên (đăng nhập app mobile) ──────────────
+    `CREATE TABLE IF NOT EXISTS employees (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      ma_nv         TEXT UNIQUE NOT NULL,
+      ho_ten        TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      chuc_vu       TEXT DEFAULT '',
+      active        INTEGER DEFAULT 1,
+      created_at    TEXT DEFAULT (datetime('now','localtime')),
+      updated_at    TEXT DEFAULT (datetime('now','localtime'))
+    )`,
+
+    // ── Chấm công: token QR đang hiệu lực (random, đổi lúc 0h & 12h) ───────
+    `CREATE TABLE IF NOT EXISTS attendance_qr_tokens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      token      TEXT UNIQUE NOT NULL,
+      active     INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      expires_at TEXT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_qr_tokens_active ON attendance_qr_tokens(active)`,
+
+    // ── Chấm công: log giờ vào / giờ ra mỗi nhân viên mỗi ngày ─────────────
+    `CREATE TABLE IF NOT EXISTS attendance_logs (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      ngay        TEXT NOT NULL,
+      gio_vao     TEXT,
+      gio_ra      TEXT,
+      token_vao   TEXT,
+      token_ra    TEXT,
+      created_at  TEXT DEFAULT (datetime('now','localtime')),
+      updated_at  TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(employee_id, ngay)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_attendance_ngay ON attendance_logs(ngay)`,
+    `CREATE INDEX IF NOT EXISTS idx_attendance_emp  ON attendance_logs(employee_id)`,
   ];
   for (const sql of tables) db.run(sql);
 
