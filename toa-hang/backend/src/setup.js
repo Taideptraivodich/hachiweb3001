@@ -224,6 +224,8 @@ async function setupDatabase() {
       xuat_gt     REAL DEFAULT 0,
       cuoi_ky_sl  REAL DEFAULT 0,
       cuoi_ky_gt  REAL DEFAULT 0,
+      ngay_mua_gan_nhat TEXT,
+      ngay_ban_gan_nhat TEXT,
       tu_ngay     TEXT NOT NULL,
       den_ngay    TEXT NOT NULL,
       updated_at  TEXT DEFAULT (datetime('now','localtime')),
@@ -406,6 +408,9 @@ async function setupDatabase() {
   addColumnIfMissing('tonkho_cache', 'don_gia', 'REAL DEFAULT 0');
   addColumnIfMissing('tonkho_cache', 'don_gia_goc', 'REAL DEFAULT 0');
   addColumnIfMissing('tonkho_cache', 'don_gia_vat_rate', 'REAL DEFAULT 0');
+  // Ngày mua/bán gần nhất (RefType 302 / 2020 của MISA 2026). NULL = không phát sinh trong 2026.
+  addColumnIfMissing('tonkho_cache', 'ngay_mua_gan_nhat', 'TEXT');
+  addColumnIfMissing('tonkho_cache', 'ngay_ban_gan_nhat', 'TEXT');
 
   // Mã ngoài: chuẩn hóa tìm kiếm, phân loại mã và lưu giá NCC hiện hành.
   addColumnIfMissing('ma_ngoai', 'ma_hang_norm', "TEXT DEFAULT ''");

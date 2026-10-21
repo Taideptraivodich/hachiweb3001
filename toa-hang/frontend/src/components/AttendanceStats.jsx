@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Tabs, Table, DatePicker, Select, Button, Space, message, Typography,
-  Modal, Form, Input, Switch, Popconfirm, Tag, Empty,
+  Modal, Form, Input, Switch, Popconfirm, Tag, Empty, TimePicker,
 } from 'antd';
 import {
-  DownloadOutlined, ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined, QrcodeOutlined,
+  DownloadOutlined, ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
@@ -14,6 +14,9 @@ import {
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
+
+// "2026-10-01 08:57:08" -> "08:57"
+const hm = (v) => (v ? v.split(' ')[1].slice(0, 5) : '');
 
 function downloadBlob(blob, fileName) {
   const url = URL.createObjectURL(blob);
@@ -25,7 +28,7 @@ function downloadBlob(blob, fileName) {
 }
 
 // ─── Tab: Bảng tổng hợp ───────────────────────────────────────────────────────
-function SummaryTab({ range }) {
+function SummaryTab({ range, gioHC, gioRaHC }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -35,19 +38,21 @@ function SummaryTab({ range }) {
       const params = {};
       if (range?.[0]) params.tu_ngay = range[0].format('YYYY-MM-DD');
       if (range?.[1]) params.den_ngay = range[1].format('YYYY-MM-DD');
+      params.gio_hc = gioHC;
+      params.gio_ra_hc = gioRaHC;
       setRows(await getAttendanceSummary(params));
     } catch (err) {
       message.error('Lỗi tải bảng tổng hợp: ' + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
-  }, [range]);
+  }, [range, gioHC, gioRaHC]);
 
   useEffect(() => { load(); }, [load]);
 
   async function handleExport() {
     try {
-      const params = {};
+      const params = { gio_hc: gioHC, gio_ra_hc: gioRaHC };
       if (range?.[0]) params.tu_ngay = range[0].format('YYYY-MM-DD');
       if (range?.[1]) params.den_ngay = range[1].format('YYYY-MM-DD');
       const blob = await exportAttendance('summary', params);
@@ -61,9 +66,14 @@ function SummaryTab({ range }) {
     { title: 'Mã NV', dataIndex: 'ma_nv', width: 100 },
     { title: 'Họ tên', dataIndex: 'ho_ten' },
     { title: 'Số ngày công', dataIndex: 'so_ngay_cong', width: 130, align: 'center' },
-    { title: 'Số ngày thiếu chấm', dataIndex: 'so_ngay_thieu_cham', width: 160, align: 'center',
+    { title: 'Số lần đi trễ', dataIndex: 'so_lan_tre', width: 130, align: 'center',
+      render: (v) => v > 0 ? <Tag color="red">{v}</Tag> : v },
+    { title: 'Tổng phút trễ', dataIndex: 'tong_phut_tre', width: 130, align: 'center',
+      render: (v) => v > 0 ? <Text type="danger" strong>{v}</Text> : v },
+    { title: 'Số lần ra sớm', dataIndex: 'so_lan_ra_som', width: 130, align: 'center',
       render: (v) => v > 0 ? <Tag color="orange">{v}</Tag> : v },
-    { title: 'Tổng giờ', dataIndex: 'tong_gio', width: 110, align: 'center' },
+    { title: 'Tổng phút ra sớm', dataIndex: 'tong_phut_ra_som', width: 150, align: 'center',
+      render: (v) => v > 0 ? <Text type="warning" strong>{v}</Text> : v },
   ];
 
   return (
@@ -82,7 +92,7 @@ function SummaryTab({ range }) {
 }
 
 // ─── Tab: Chi tiết theo từng nhân viên ────────────────────────────────────────
-function DetailTab({ range, employees }) {
+function DetailTab({ range, employees, gioHC, gioRaHC }) {
   const [employeeId, setEmployeeId] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -94,19 +104,21 @@ function DetailTab({ range, employees }) {
       if (range?.[0]) params.tu_ngay = range[0].format('YYYY-MM-DD');
       if (range?.[1]) params.den_ngay = range[1].format('YYYY-MM-DD');
       if (employeeId) params.employee_id = employeeId;
+      params.gio_hc = gioHC;
+      params.gio_ra_hc = gioRaHC;
       setRows(await getAttendanceDetail(params));
     } catch (err) {
       message.error('Lỗi tải chi tiết: ' + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
-  }, [range, employeeId]);
+  }, [range, employeeId, gioHC, gioRaHC]);
 
   useEffect(() => { load(); }, [load]);
 
   async function handleExport() {
     try {
-      const params = {};
+      const params = { gio_hc: gioHC, gio_ra_hc: gioRaHC };
       if (range?.[0]) params.tu_ngay = range[0].format('YYYY-MM-DD');
       if (range?.[1]) params.den_ngay = range[1].format('YYYY-MM-DD');
       if (employeeId) params.employee_id = employeeId;
@@ -121,8 +133,14 @@ function DetailTab({ range, employees }) {
     { title: 'Ngày', dataIndex: 'ngay', width: 110 },
     { title: 'Mã NV', dataIndex: 'ma_nv', width: 100 },
     { title: 'Họ tên', dataIndex: 'ho_ten' },
-    { title: 'Giờ vào', dataIndex: 'gio_vao', render: (v) => v || <Tag color="red">Chưa chấm</Tag> },
-    { title: 'Giờ ra', dataIndex: 'gio_ra', render: (v) => v || <Tag color="orange">Chưa chấm</Tag> },
+    { title: 'Giờ vào', dataIndex: 'gio_vao', width: 100, align: 'center',
+      render: (v) => v ? hm(v) : <Tag color="red">Chưa chấm</Tag> },
+    { title: 'Phút vào trễ', dataIndex: 'phut_tre', width: 130, align: 'center',
+      render: (v, r) => !r.gio_vao ? '' : v > 0 ? <Text type="danger" strong>{v}</Text> : 0 },
+    { title: 'Giờ ra', dataIndex: 'gio_ra', width: 100, align: 'center',
+      render: (v) => v ? hm(v) : <Tag color="orange">Chưa chấm</Tag> },
+    { title: 'Phút ra sớm', dataIndex: 'phut_ra_som', width: 130, align: 'center',
+      render: (v, r) => !r.gio_ra ? '' : v > 0 ? <Text type="warning" strong>{v}</Text> : 0 },
   ];
 
   return (
@@ -251,6 +269,22 @@ function EmployeesTab({ employees, reload }) {
 export default function AttendanceStats() {
   const [range, setRange] = useState([dayjs().startOf('month'), dayjs()]);
   const [employees, setEmployees] = useState([]);
+  const [gioHC, setGioHC] = useState(() => {
+    try { return localStorage.getItem('cc_gio_hc') || '08:00'; } catch { return '08:00'; }
+  });
+  const [gioRaHC, setGioRaHC] = useState(() => {
+    try { return localStorage.getItem('cc_gio_ra_hc') || '17:00'; } catch { return '17:00'; }
+  });
+  function changeGioRaHC(t) {
+    const v = t ? t.format('HH:mm') : '17:00';
+    setGioRaHC(v);
+    try { localStorage.setItem('cc_gio_ra_hc', v); } catch { /* bỏ qua */ }
+  }
+  function changeGioHC(t) {
+    const v = t ? t.format('HH:mm') : '08:00';
+    setGioHC(v);
+    try { localStorage.setItem('cc_gio_hc', v); } catch { /* bỏ qua */ }
+  }
 
   const loadEmployees = useCallback(async () => {
     try {
@@ -265,20 +299,24 @@ export default function AttendanceStats() {
   return (
     <div>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Button
-          type="primary" ghost icon={<QrcodeOutlined />}
-          onClick={() => window.open('/kiosk', '_blank')}
-        >
-          Mở màn hình QR (cho máy đặt ở cổng)
-        </Button>
         <Text strong>Khoảng thời gian:</Text>
         <RangePicker value={range} onChange={(v) => v && setRange(v)} format="DD/MM/YYYY" />
+        <Text strong>Giờ vào làm:</Text>
+        <TimePicker
+          value={dayjs(gioHC, 'HH:mm')} onChange={changeGioHC}
+          format="HH:mm" allowClear={false} needConfirm={false} minuteStep={5}
+        />
+        <Text strong>Giờ ra tiêu chuẩn:</Text>
+        <TimePicker
+          value={dayjs(gioRaHC, 'HH:mm')} onChange={changeGioRaHC}
+          format="HH:mm" allowClear={false} needConfirm={false} minuteStep={5}
+        />
       </Space>
       <Tabs
         defaultActiveKey="summary"
         items={[
-          { key: 'summary', label: 'Bảng tổng hợp', children: <SummaryTab range={range} /> },
-          { key: 'detail',  label: 'Chi tiết theo nhân viên', children: <DetailTab range={range} employees={employees} /> },
+          { key: 'summary', label: 'Bảng tổng hợp', children: <SummaryTab range={range} gioHC={gioHC} gioRaHC={gioRaHC} /> },
+          { key: 'detail',  label: 'Chi tiết theo nhân viên', children: <DetailTab range={range} employees={employees} gioHC={gioHC} gioRaHC={gioRaHC} /> },
           { key: 'employees', label: 'Quản lý nhân viên', children: <EmployeesTab employees={employees} reload={loadEmployees} /> },
         ]}
       />

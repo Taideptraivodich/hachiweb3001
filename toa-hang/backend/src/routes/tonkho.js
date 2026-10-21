@@ -205,6 +205,23 @@ router.get('/tong-hop', async (req, res) => {
             -- Chỉ xét dòng NHẬP (mua hàng): VAT chỉ có ý nghĩa với giá mua.
             -- Dòng XUẤT mang giá vốn (COGS), không phải giá mua, và không có
             -- PUVoucherDetail tương ứng nên luôn bị hiểu nhầm là "không thuế".
+        ),
+        -- Ngày mua / bán gần nhất theo MÃ HÀNG (gộp mọi kho), tính trên toàn bộ lịch sử
+        -- tới hết kỳ xem. Chỉ tính chứng từ mua/bán thật của MISA 2026:
+        --   RefType 302  = Mua hàng trong nước nhập kho
+        --   RefType 2020 = Xuất kho bán hàng
+        -- KHÔNG tính: 611 (tồn đầu kỳ), 2013 (khách trả hàng), 3030 (trả NCC), 2014 (nhập khác).
+        -- NULL = không có phát sinh trong 2026 (hàng từ phần mềm cũ).
+        LastTx AS (
+          SELECT
+            il.InventoryItemCode,
+            MAX(CASE WHEN il.RefType = 302  AND ISNULL(il.InwardQuantity, 0)  > 0 THEN il.PostedDate END) AS ngay_mua,
+            MAX(CASE WHEN il.RefType = 2020 AND ISNULL(il.OutwardQuantity, 0) > 0 THEN il.PostedDate END) AS ngay_ban
+          FROM InventoryLedger il
+          WHERE il.InventoryItemCode IS NOT NULL
+            AND il.InventoryItemCode <> ''
+            AND il.PostedDate <= @den_ngay
+          GROUP BY il.InventoryItemCode
         )
         SELECT
           il.InventoryItemCode                                              AS ma_hang,
@@ -232,13 +249,17 @@ router.get('/tong-hop', async (req, res) => {
             ELSE ISNULL(ROUND(lp.UnitPrice, 0), 0)
           END                                                              AS don_gia,
           ISNULL(lp.UnitPrice, 0)                                          AS don_gia_goc,
-          ISNULL(lp.VATRate, 0)                                           AS don_gia_vat_rate
+          ISNULL(lp.VATRate, 0)                                           AS don_gia_vat_rate,
+          CONVERT(VARCHAR(10), MAX(lt.ngay_mua), 23)                      AS ngay_mua_gan_nhat,
+          CONVERT(VARCHAR(10), MAX(lt.ngay_ban), 23)                      AS ngay_ban_gan_nhat
         FROM InventoryLedger il
         LEFT JOIN Unit u ON u.UnitID = il.UnitID
         LEFT JOIN LatestPrice lp
           ON lp.InventoryItemCode = il.InventoryItemCode
           AND lp.StockName = il.StockName
           AND lp.rn = 1
+        LEFT JOIN LastTx lt
+          ON lt.InventoryItemCode = il.InventoryItemCode
         WHERE il.InventoryItemCode IS NOT NULL
           AND il.InventoryItemCode <> ''
         GROUP BY il.InventoryItemCode, il.StockName, lp.UnitPrice, lp.VATRate
@@ -286,7 +307,8 @@ router.get('/tong-hop', async (req, res) => {
     let rows = dbQuery(db, `
       SELECT ma_hang, ten_hang, kho, dvt, don_gia, don_gia_goc, don_gia_vat_rate,
              dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt,
-             xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt, updated_at
+             xuat_sl, xuat_gt, cuoi_ky_sl, cuoi_ky_gt, updated_at,
+             ngay_mua_gan_nhat, ngay_ban_gan_nhat
       FROM tonkho_cache
       WHERE tu_ngay = ? AND den_ngay = ?
       ORDER BY ten_hang
@@ -302,7 +324,8 @@ router.get('/tong-hop', async (req, res) => {
         SELECT t.ma_hang, t.ten_hang, t.kho, t.dvt, t.don_gia, t.don_gia_goc, t.don_gia_vat_rate,
                t.dau_ky_sl, t.dau_ky_gt, t.nhap_sl, t.nhap_gt,
                t.xuat_sl, t.xuat_gt, t.cuoi_ky_sl, t.cuoi_ky_gt,
-               t.tu_ngay, t.den_ngay, t.updated_at
+               t.tu_ngay, t.den_ngay, t.updated_at,
+               t.ngay_mua_gan_nhat, t.ngay_ban_gan_nhat
         FROM tonkho_cache t
         WHERE t.rowid = (
           SELECT t2.rowid FROM tonkho_cache t2
@@ -396,6 +419,8 @@ router.get('/chi-tiet', async (req, res) => {
           il.OutwardQuantity            AS xuat_sl,
           il.OutwardAmount              AS xuat_gt,
           il.StockName                  AS kho,
+          il.RefID                      AS ref_id,
+          il.RefType                    AS ref_type,
           MAX(il.InventoryItemName)     AS ten_hang
         FROM InventoryLedger il
         WHERE il.InventoryItemCode = @ma_hang
@@ -403,6 +428,7 @@ router.get('/chi-tiet', async (req, res) => {
           AND il.PostedDate BETWEEN @tu_ngay AND @den_ngay
           AND (il.InwardQuantity <> 0 OR il.OutwardQuantity <> 0)
         GROUP BY
+          il.RefID, il.RefType,
           il.PostedDate, il.RefDate, il.RefNo, il.JournalMemo,
           il.UnitPrice, il.InwardQuantity, il.InwardAmount,
           il.OutwardQuantity, il.OutwardAmount, il.StockName
@@ -522,6 +548,144 @@ router.get('/chi-tiet', async (req, res) => {
   }
 });
 
+// ─── GET /tonkho/chung-tu ─────────────────────────────────────────────────────
+// Xem chứng từ nhập/xuất kho (giống bấm vào số chứng từ trong Sổ chi tiết VTHH của MISA).
+// Dựng từ chính InventoryLedger theo RefID — một chứng từ có thể có nhiều dòng hàng.
+// Chỉ đọc (SELECT), cần MISA online.
+router.get('/chung-tu', async (req, res) => {
+  const refId = String(req.query.ref_id || '').trim();
+  if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(refId)) {
+    return res.status(400).json({ success: false, error: 'ref_id không hợp lệ' });
+  }
+  if (!(await checkMisaOnline())) {
+    return res.status(503).json({ success: false, error: 'MISA đang offline — không mở được chứng từ' });
+  }
+  try {
+    const misa = await getMisaPool();
+    const request = misa.request();
+    request.input('ref_id', sql.UniqueIdentifier, refId);
+    const result = await request.query(`
+      SELECT
+        il.RefType, il.RefTypeName, il.RefNo, il.RefDate, il.PostedDate,
+        il.InventoryItemCode AS ma_hang, il.InventoryItemName AS ten_hang,
+        il.StockName AS kho, u.UnitName AS dvt,
+        il.UnitPrice AS don_gia,
+        il.InwardQuantity AS nhap_sl, il.OutwardQuantity AS xuat_sl,
+        il.InwardAmount AS nhap_gt, il.OutwardAmount AS xuat_gt,
+        il.CorrespondingAccountNumber AS tk_doi_ung,
+        il.JournalMemo AS dien_giai, il.Description AS ghi_chu,
+        il.AccountObjectCode AS ma_doi_tuong, il.AccountObjectName AS ten_doi_tuong,
+        il.AccountObjectAddress AS dia_chi, il.EmployeeName AS nhan_vien,
+        pvd.VATRate AS vat_rate
+      FROM InventoryLedger il
+      LEFT JOIN Unit u ON u.UnitID = il.UnitID
+      LEFT JOIN PUVoucherDetail pvd ON pvd.RefDetailID = il.RefDetailID
+      WHERE il.RefID = @ref_id
+      ORDER BY il.SortOrder, il.RefOrder
+    `);
+    const rows = result.recordset;
+    if (!rows.length) return res.status(404).json({ success: false, error: 'Không tìm thấy chứng từ' });
+
+    const h = rows[0];
+    const isNhap = rows.some(r => Number(r.nhap_sl) > 0);
+    const TEN_LOAI = { 302: 'Phiếu nhập kho — Mua hàng trong nước', 2020: 'Phiếu xuất kho — Bán hàng' };
+    const lines = rows.map(r => {
+      const sl = Number(isNhap ? r.nhap_sl : r.xuat_sl) || 0;
+      const gt = Number(isNhap ? r.nhap_gt : r.xuat_gt) || 0;
+      return {
+        ma_hang: r.ma_hang, ten_hang: r.ten_hang, kho: r.kho, dvt: r.dvt,
+        so_luong: sl, don_gia: Number(r.don_gia) || 0, thanh_tien: gt,
+        vat_rate: r.vat_rate == null ? null : Number(r.vat_rate),
+        tk_doi_ung: r.tk_doi_ung, ghi_chu: r.ghi_chu,
+      };
+    });
+    // Phiếu XUẤT bán hàng: lấy GIÁ BÁN từ chứng từ bán hàng (SAVoucher) liên kết qua
+    // SaleOutwardReference (INOutwardRefID → SAVoucherRefID), giống ô "Tham chiếu" của MISA.
+    // Sổ kho chỉ có giá vốn nên không dùng được để hiện giá bán.
+    let banHang = [];
+    let banHangLoi = null;
+    if (!isNhap) {
+      try {
+        const subQ = `SELECT SAVoucherRefID FROM SaleOutwardReference WHERE INOutwardRefID = @ref_id`;
+        const r1 = misa.request();
+        r1.input('ref_id', sql.UniqueIdentifier, refId);
+        const hdrRes = await r1.query(`
+          SELECT s.RefID AS sa_ref_id,
+                 ISNULL(s.RefNoFinance, s.RefNoManagement) AS so_ct,
+                 s.RefDate, s.PostedDate,
+                 s.AccountObjectName AS khach_hang, s.AccountObjectAddress AS dia_chi,
+                 s.JournalMemo AS dien_giai,
+                 s.TotalSaleAmount AS tien_hang, s.TotalDiscountAmount AS chiet_khau,
+                 s.TotalVATAmount AS thue_gtgt, s.TotalAmount AS thanh_toan
+          FROM SAVoucher s
+          WHERE s.RefID IN (${subQ})
+          ORDER BY s.PostedDate, ISNULL(s.RefNoFinance, s.RefNoManagement)
+        `);
+        if (hdrRes.recordset.length) {
+          const r2 = misa.request();
+          r2.input('ref_id', sql.UniqueIdentifier, refId);
+          const detRes = await r2.query(`
+            SELECT d.RefID AS sa_ref_id, d.SortOrder, d.Quantity, d.UnitPrice, d.Amount,
+                   d.DiscountAmount, d.VATRate, d.VATAmount, d.Description,
+                   u.UnitName AS dvt,
+                   x.InventoryItemCode AS ma_hang, x.InventoryItemName AS ten_hang, x.StockName AS kho
+            FROM SAVoucherDetail d
+            LEFT JOIN Unit u ON u.UnitID = d.UnitID
+            OUTER APPLY (
+              SELECT TOP 1 il.InventoryItemCode, il.InventoryItemName, il.StockName
+              FROM InventoryLedger il
+              WHERE il.InventoryItemID = d.InventoryItemID
+              ORDER BY CASE WHEN il.RefID = @ref_id THEN 0 ELSE 1 END, il.PostedDate DESC
+            ) x
+            WHERE d.RefID IN (${subQ})
+            ORDER BY d.SortOrder
+          `);
+          banHang = hdrRes.recordset.map(b => {
+            const lns = detRes.recordset
+              .filter(d => String(d.sa_ref_id).toLowerCase() === String(b.sa_ref_id).toLowerCase())
+              .map(d => ({
+                ma_hang: d.ma_hang || '', ten_hang: d.ten_hang || d.Description || '',
+                kho: d.kho || '', dvt: d.dvt || '',
+                so_luong: Number(d.Quantity) || 0, don_gia: Number(d.UnitPrice) || 0,
+                thanh_tien: Number(d.Amount) || 0,
+                vat_rate: d.VATRate == null ? null : Number(d.VATRate),
+              }));
+            return {
+              so_ct: b.so_ct, ngay_ct: b.RefDate, ngay_hach_toan: b.PostedDate,
+              khach_hang: b.khach_hang, dia_chi: b.dia_chi, dien_giai: b.dien_giai,
+              lines: lns, tong_sl: lns.reduce((t, l) => t + l.so_luong, 0),
+              tien_hang: Number(b.tien_hang) || 0, chiet_khau: Number(b.chiet_khau) || 0,
+              thue_gtgt: Number(b.thue_gtgt) || 0, thanh_toan: Number(b.thanh_toan) || 0,
+            };
+          });
+        }
+      } catch (e) {
+        console.error('⚠️ Không đọc được chứng từ bán hàng liên kết:', e.message);
+        banHangLoi = e.message;
+      }
+    }
+
+    return res.json({
+      success: true,
+      header: {
+        loai: TEN_LOAI[h.RefType] || h.RefTypeName || ('Chứng từ ' + h.RefType),
+        ref_type: h.RefType, huong: isNhap ? 'nhap' : 'xuat',
+        so_ct: h.RefNo, ngay_ct: h.RefDate, ngay_hach_toan: h.PostedDate,
+        ma_doi_tuong: h.ma_doi_tuong, ten_doi_tuong: h.ten_doi_tuong, dia_chi: h.dia_chi,
+        nhan_vien: h.nhan_vien, dien_giai: h.dien_giai,
+      },
+      lines,
+      tong_sl: lines.reduce((s, l) => s + l.so_luong, 0),
+      tong_tien: lines.reduce((s, l) => s + l.thanh_tien, 0),
+      ban_hang: banHang,
+      ban_hang_loi: banHangLoi,
+    });
+  } catch (err) {
+    console.error('❌ Đọc chứng từ MISA lỗi:', err.message);
+    return res.status(500).json({ success: false, error: 'Không đọc được chứng từ: ' + err.message });
+  }
+});
+
 // ─── Helper: cập nhật cache tồn kho tổng hợp ─────────────────────────────────
 async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
   const db  = await getDb();
@@ -531,9 +695,12 @@ async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
       INSERT INTO tonkho_cache
         (ma_hang, ten_hang, kho, dvt, don_gia, don_gia_goc, don_gia_vat_rate,
          dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt, xuat_sl, xuat_gt,
-         cuoi_ky_sl, cuoi_ky_gt, tu_ngay, den_ngay, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         cuoi_ky_sl, cuoi_ky_gt, tu_ngay, den_ngay, updated_at,
+         ngay_mua_gan_nhat, ngay_ban_gan_nhat)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(ma_hang, kho, tu_ngay, den_ngay) DO UPDATE SET
+        ngay_mua_gan_nhat=excluded.ngay_mua_gan_nhat,
+        ngay_ban_gan_nhat=excluded.ngay_ban_gan_nhat,
         ten_hang=excluded.ten_hang, dvt=excluded.dvt, don_gia=excluded.don_gia,
         don_gia_goc=excluded.don_gia_goc, don_gia_vat_rate=excluded.don_gia_vat_rate,
         dau_ky_sl=excluded.dau_ky_sl, dau_ky_gt=excluded.dau_ky_gt,
@@ -549,6 +716,7 @@ async function _updateTonkhoCache(data, tu_ngay, den_ngay) {
       row.xuat_sl || 0,   row.xuat_gt || 0,
       row.cuoi_ky_sl || 0, row.cuoi_ky_gt || 0,
       tu_ngay, den_ngay, now,
+      row.ngay_mua_gan_nhat || null, row.ngay_ban_gan_nhat || null,
     ]);
   }
   db.run(`

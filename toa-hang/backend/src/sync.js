@@ -177,6 +177,23 @@ async function syncTonkho() {
         WHERE il.PostedDate <= @den_ngay
           AND ISNULL(il.UnitPrice, 0) > 0
           AND ISNULL(il.InwardQuantity, 0) > 0
+      ),
+      -- Ngày mua / bán gần nhất theo MÃ HÀNG (gộp mọi kho), tính trên toàn bộ lịch sử
+      -- tới hết kỳ xem. Chỉ tính chứng từ mua/bán thật của MISA 2026:
+      --   RefType 302  = Mua hàng trong nước nhập kho
+      --   RefType 2020 = Xuất kho bán hàng
+      -- KHÔNG tính: 611 (tồn đầu kỳ), 2013 (khách trả hàng), 3030 (trả NCC), 2014 (nhập khác).
+      -- NULL = không có phát sinh trong 2026 (hàng từ phần mềm cũ).
+      LastTx AS (
+        SELECT
+          il.InventoryItemCode,
+          MAX(CASE WHEN il.RefType = 302  AND ISNULL(il.InwardQuantity, 0)  > 0 THEN il.PostedDate END) AS ngay_mua,
+          MAX(CASE WHEN il.RefType = 2020 AND ISNULL(il.OutwardQuantity, 0) > 0 THEN il.PostedDate END) AS ngay_ban
+        FROM InventoryLedger il
+        WHERE il.InventoryItemCode IS NOT NULL
+          AND il.InventoryItemCode <> ''
+          AND il.PostedDate <= @den_ngay
+        GROUP BY il.InventoryItemCode
       )
       SELECT
         a.InventoryItemCode AS ma_hang,
@@ -197,8 +214,12 @@ async function syncTonkho() {
         ISNULL(tk.nhap_sl, 0) AS nhap_sl,
         ISNULL(tk.nhap_gt, 0) AS nhap_gt,
         ISNULL(tk.xuat_sl, 0) AS xuat_sl,
-        ISNULL(tk.xuat_gt, 0) AS xuat_gt
+        ISNULL(tk.xuat_gt, 0) AS xuat_gt,
+        CONVERT(VARCHAR(10), lt.ngay_mua, 23) AS ngay_mua_gan_nhat,
+        CONVERT(VARCHAR(10), lt.ngay_ban, 23) AS ngay_ban_gan_nhat
       FROM all_hang a
+      LEFT JOIN LastTx lt
+        ON lt.InventoryItemCode = a.InventoryItemCode
       LEFT JOIN dau_ky dk
         ON dk.InventoryItemCode = a.InventoryItemCode
         AND dk.StockName = a.StockName
@@ -224,9 +245,12 @@ async function syncTonkho() {
         INSERT INTO tonkho_cache
           (ma_hang, ten_hang, kho, dvt, don_gia, don_gia_goc, don_gia_vat_rate,
            dau_ky_sl, dau_ky_gt, nhap_sl, nhap_gt, xuat_sl, xuat_gt,
-           cuoi_ky_sl, cuoi_ky_gt, tu_ngay, den_ngay, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           cuoi_ky_sl, cuoi_ky_gt, tu_ngay, den_ngay, updated_at,
+           ngay_mua_gan_nhat, ngay_ban_gan_nhat)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(ma_hang, kho, tu_ngay, den_ngay) DO UPDATE SET
+          ngay_mua_gan_nhat=excluded.ngay_mua_gan_nhat,
+          ngay_ban_gan_nhat=excluded.ngay_ban_gan_nhat,
           ten_hang=excluded.ten_hang, dvt=excluded.dvt,
           don_gia=excluded.don_gia,
           don_gia_goc=excluded.don_gia_goc,
@@ -244,6 +268,7 @@ async function syncTonkho() {
         row.xuat_sl || 0, row.xuat_gt || 0,
         cuoi_ky_sl, cuoi_ky_gt,
         firstDay, today, now,
+        row.ngay_mua_gan_nhat || null, row.ngay_ban_gan_nhat || null,
       ]);
       count++;
     }

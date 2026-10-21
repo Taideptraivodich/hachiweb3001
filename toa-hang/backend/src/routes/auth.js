@@ -6,7 +6,10 @@ const { getDb, dbGet } = require('../sqlite');
 
 const router = express.Router();
 
-const TOKEN_TTL_SECONDS = 24 * 60 * 60; // 24h
+const TOKEN_TTL_SECONDS = 24 * 60 * 60; // 24h (admin)
+// Nhân viên đăng nhập 1 lần trên app, dùng gần như vĩnh viễn (10 năm). Quyền chấm
+// công vẫn bị chặn ngay khi admin khoá/xoá tài khoản (xem requireEmployee).
+const EMPLOYEE_TOKEN_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 // Hash hợp lệ nhưng không khớp mật khẩu nào — dùng khi ma_nv không tồn tại,
 // để bcrypt.compare vẫn chạy đủ thời gian như khi so khớp thật.
 const DUMMY_HASH = bcrypt.hashSync('__no_such_account__', 10);
@@ -72,10 +75,10 @@ router.post('/employee-login', async (req, res) => {
     const token = jwt.sign(
       { username: emp.ma_nv, employeeId: emp.id, hoTen: emp.ho_ten },
       process.env.JWT_SECRET,
-      { expiresIn: TOKEN_TTL_SECONDS }
+      { expiresIn: EMPLOYEE_TOKEN_TTL_SECONDS }
     );
 
-    res.json({ token, employeeId: emp.id, hoTen: emp.ho_ten, expiresIn: TOKEN_TTL_SECONDS });
+    res.json({ token, employeeId: emp.id, hoTen: emp.ho_ten, expiresIn: EMPLOYEE_TOKEN_TTL_SECONDS });
   } catch (err) {
     console.error('❌ Lỗi đăng nhập nhân viên:', err.message);
     res.status(500).json({ error: 'Lỗi server khi đăng nhập' });
